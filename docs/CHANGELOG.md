@@ -1,5 +1,18 @@
 # ChangeLog
 
+# Version 1.0.0-alpha73 (2022-11-30)
+- Fixes feed search for videos and podcasts
+
+# Version 1.0.0-alpha72 (2022-11-29)
+- Improves feed recommendations
+
+# Version 1.0.0-alpha71 (2022-11-25)
+- Adds feed recommendations
+
+# Version 1.0.0-alpha70 (2022-11-18)
+- Improves actions tracking
+- Fixes crash on podcast clip comment
+
 # Version 1.0.0-alpha69 (2022-11-11)
 - Adds actions tracking
 - Adds alias rules validation

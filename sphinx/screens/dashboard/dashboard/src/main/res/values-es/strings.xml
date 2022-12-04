@@ -117,6 +117,9 @@
     <string name="read_now">Read Now</string>
     <string name="watch_now">Watch Now</string>
 
+    <string name="recommendations">Recomendaciones</string>
+    <string name="refresh">Refresh</string>
+
     <string name="all_place_holder">No se encontraron resultados</string>
     <string name="listen_place_holder">No se encontraron resultados para \"Escuchar\"</string>
     <string name="watch_place_holder">No se encontraron resultados para \"Mirar\"</string>
@@ -125,6 +128,8 @@
 
     <string name="feed_search_placeholder_1">Buscá entre</string>
     <string name="feed_search_placeholder_2">los feeds a los que está suscripto</string>
+
+    <string name="feed_search_result_load_error">Ocurrió un error al intentar cargar el contentido del Feed. Por favor volvé a intentarlo más tarde</string>
 
     <string name="video_search_placeholder_1">Buscá entre</string>
     <string name="video_search_placeholder_2">miles de videos</string>
@@ -136,4 +141,6 @@
 
     <string name="dashboard_restore_progress">Restaurando: %s</string>
     <string name="dashboard_stop_restore">Continuar más tarde</string>
+
+    <string name="loading_recommendations">Cargando Recomendaciones...</string>
 </resources>

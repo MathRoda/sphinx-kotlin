@@ -3,7 +3,6 @@ package chat.sphinx.podcast_player.ui
 import android.animation.Animator
 import android.content.Context
 import android.os.Bundle
-import android.util.Log
 import android.view.ContextThemeWrapper
 import android.view.KeyEvent
 import android.view.MenuItem
@@ -28,6 +27,7 @@ import chat.sphinx.podcast_player.R
 import chat.sphinx.podcast_player.databinding.FragmentPodcastPlayerBinding
 import chat.sphinx.podcast_player.ui.adapter.PodcastEpisodesFooterAdapter
 import chat.sphinx.podcast_player.ui.adapter.PodcastEpisodesListAdapter
+import chat.sphinx.podcast_player.ui.viewstates.BoostAnimationViewState
 import chat.sphinx.podcast_player.ui.viewstates.PodcastPlayerViewState
 import chat.sphinx.resources.inputMethodManager
 import chat.sphinx.wrapper_common.PhotoUrl
@@ -71,6 +71,11 @@ internal class PodcastPlayerFragment : SideEffectFragment<
     protected lateinit var connectivityHelper: ConnectivityHelper
 
     private val args: PodcastPlayerFragmentArgs by navArgs()
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        viewModel.trackPodcastConsumed()
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -309,7 +314,7 @@ internal class PodcastPlayerFragment : SideEffectFragment<
                     imageViewPodcastImage,
                     podcastImage,
                     ImageLoaderOptions.Builder()
-                        .placeholderResId(R.drawable.ic_profile_avatar_circle)
+                        .placeholderResId(R.drawable.ic_podcast_placeholder)
                         .build()
                 )
             }
@@ -403,7 +408,7 @@ internal class PodcastPlayerFragment : SideEffectFragment<
                     imageViewPodcastImage,
                     podcastImage,
                     ImageLoaderOptions.Builder()
-                        .placeholderResId(R.drawable.ic_profile_avatar_circle)
+                        .placeholderResId(R.drawable.ic_podcast_placeholder)
                         .build()
                 )
             }

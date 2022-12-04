@@ -62,6 +62,8 @@ dependencies {
     api project(path: ':sphinx:screens:splash:splash')
 
     implementation project(path: ':sphinx:screens-detail:common:detail-resources')
+    implementation project(path: ':sphinx:application:data:concepts:repositories:concept-repository-actions')
+
     api project(path: ':sphinx:screens-detail:add-friend:add-friend')
     api project(path: ':sphinx:screens-detail:camera:camera')
     api project(path: ':sphinx:screens-detail:chat-detail:tribe-detail')
@@ -74,6 +76,7 @@ dependencies {
     api project(path: ':sphinx:screens-detail:payments:payment-send:payment-send')
     api project(path: ':sphinx:screens-detail:payments:payment-template:payment-template')
     api project(path: ':sphinx:screens-detail:podcast-player:podcast-player')
+    api project(path: ':sphinx:screens-detail:common-player')
     api project(path: ':sphinx:screens-detail:qr-code:qr-code')
     api project(path: ':sphinx:screens-detail:scanner:scanner')
     api project(path: ':sphinx:screens-detail:subscription:subscription')

@@ -117,6 +117,8 @@
     <string name="read_now">Read Now</string>
     <string name="watch_now">Watch Now</string>
 
+    <string name="recommendations">Recommendations</string>
+
     <string name="all_place_holder">No \"Feed\" Results Found</string>
     <string name="listen_place_holder">No \"Listen\" Results Found</string>
     <string name="watch_place_holder">No \"Watch\" Results Found</string>
@@ -125,6 +127,8 @@
 
     <string name="feed_search_placeholder_1">Search over</string>
     <string name="feed_search_placeholder_2">your subscribed feeds</string>
+
+    <string name="feed_search_result_load_error">Something went wrong while loading feed content, please try again later</string>
 
     <string name="video_search_placeholder_1">Search over</string>
     <string name="video_search_placeholder_2">thousand of videos</string>
@@ -136,4 +140,6 @@
 
     <string name="dashboard_restore_progress">Restoring: %s</string>
     <string name="dashboard_stop_restore">Continue later</string>
+
+    <string name="loading_recommendations">Loading Recommendations...</string>
 </resources>

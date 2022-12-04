@@ -7,7 +7,9 @@ import chat.sphinx.concept_meme_input_stream.MemeInputStreamHandler
 import chat.sphinx.concept_meme_server.MemeServerTokenHandler
 import chat.sphinx.concept_network_query_action_track.NetworkQueryActionTrack
 import chat.sphinx.concept_network_query_action_track.model.ActionTrackDto
+import chat.sphinx.concept_network_query_action_track.model.ActionTrackMetaDataDto
 import chat.sphinx.concept_network_query_action_track.model.SyncActionsDto
+import chat.sphinx.concept_network_query_action_track.model.toActionTrackMetaDataDtoOrNull
 import chat.sphinx.concept_network_query_chat.NetworkQueryChat
 import chat.sphinx.concept_network_query_chat.model.*
 import chat.sphinx.concept_network_query_contact.NetworkQueryContact
@@ -3746,10 +3748,8 @@ abstract class SphinxRepository(
                 networkQueryChat.getTribeInfo(chatHost, chatUUID).collect { loadResponse ->
                     when (loadResponse) {
 
-                        is LoadResponse.Loading -> {
-                        }
-                        is Response.Error -> {
-                        }
+                        is LoadResponse.Loading -> {}
+                        is Response.Error -> {}
 
                         is Response.Success -> {
                             val tribeDto = loadResponse.value
@@ -3805,55 +3805,67 @@ abstract class SphinxRepository(
         chatUUID: ChatUUID?,
         subscribed: Subscribed,
         currentItemId: FeedId?
-    ) {
-        withContext(io) {
-            val queries = coreDB.getSphinxDatabaseQueries()
+    ): Response<FeedId, ResponseError> {
+        val queries = coreDB.getSphinxDatabaseQueries()
 
-            networkQueryChat.getFeedContent(
-                host,
-                feedUrl,
-                chatUUID
-            ).collect { response ->
-                @Exhaustive
-                when (response) {
-                    is LoadResponse.Loading -> {
-                    }
-                    is Response.Error -> {
-                    }
-                    is Response.Success -> {
+        var updateResponse: Response<FeedId, ResponseError> = Response.Error(ResponseError("Feed content update failed"))
 
-                        var cId: ChatId = chatId
+        networkQueryChat.getFeedContent(
+            host,
+            feedUrl,
+            chatUUID
+        ).collect { response ->
+            @Exhaustive
+            when (response) {
+                is LoadResponse.Loading -> {}
 
-                        response.value.id.toFeedId()?.let { feedId ->
-                            queries.feedGetByIds(
-                                feedId.youtubeFeedIds()
-                            ).executeAsOneOrNull()
-                                ?.let { existingFeed ->
-                                    //If feed already exists linked to a chat, do not override with NULL CHAT ID
-                                    if (chatId.value == ChatId.NULL_CHAT_ID.toLong()) {
-                                        cId = existingFeed.chat_id
-                                    }
+                is Response.Error -> {
+                    updateResponse = response
+                }
+                is Response.Success -> {
+
+                    var cId: ChatId = chatId
+                    val feedId = response.value.id.toFeedId()
+
+                    feedId?.let { feedId ->
+                        queries.feedGetByIds(
+                            feedId.youtubeFeedIds()
+                        ).executeAsOneOrNull()
+                            ?.let { existingFeed ->
+                                //If feed already exists linked to a chat, do not override with NULL CHAT ID
+                                if (chatId.value == ChatId.NULL_CHAT_ID.toLong()) {
+                                    cId = existingFeed.chat_id
                                 }
-                        }
-
-                        podcastLock.withLock {
-                            queries.transaction {
-                                upsertFeed(
-                                    response.value,
-                                    feedUrl,
-                                    searchResultDescription,
-                                    searchResultImageUrl,
-                                    cId,
-                                    currentItemId,
-                                    subscribed,
-                                    queries
-                                )
                             }
+                    }
+
+                    podcastLock.withLock {
+                        queries.transaction {
+                            upsertFeed(
+                                response.value,
+                                feedUrl,
+                                searchResultDescription,
+                                searchResultImageUrl,
+                                cId,
+                                currentItemId,
+                                subscribed,
+                                queries
+                            )
                         }
+                    }
+
+                    delay(500L)
+
+                    updateResponse = feedId?.let {
+                        Response.Success(it)
+                    } ?: run {
+                       Response.Error(ResponseError("Feed content update failed"))
                     }
                 }
             }
         }
+
+        return updateResponse
     }
 
     override fun getFeedByChatId(chatId: ChatId): Flow<Feed?> = flow {
@@ -3955,6 +3967,41 @@ abstract class SphinxRepository(
                     }
                 }
         )
+    }
+
+    override fun getRecommendedFeeds(): Flow<List<FeedRecommendation>> = flow {
+
+        var results: MutableList<FeedRecommendation> = mutableListOf()
+
+        applicationScope.launch(mainImmediate) {
+            networkQueryFeedSearch.getFeedRecommendations().collect { response ->
+                @Exhaustive
+                when (response) {
+                    is LoadResponse.Loading -> {}
+                    is Response.Error -> {}
+                    is Response.Success -> {
+                        response.value.forEachIndexed { index, feedRecommendation ->
+                            results.add(
+                                FeedRecommendation(
+                                    id = feedRecommendation.ref_id,
+                                    feedType = feedRecommendation.type,
+                                    description = feedRecommendation.description,
+                                    smallImageUrl = feedRecommendation.s_image_url,
+                                    mediumImageUrl = feedRecommendation.m_image_url,
+                                    largeImageUrl = feedRecommendation.l_image_url,
+                                    link = feedRecommendation.link,
+                                    title = feedRecommendation.episode_title,
+                                    date = feedRecommendation.date,
+                                    position = index
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }.join()
+
+        emit(results)
     }
 
     private suspend fun mapFeedDboList(
@@ -6193,11 +6240,17 @@ abstract class SphinxRepository(
             for (chunk in actionsDboList.chunked(50)) {
                 val actionsIds = chunk.map { it.id }
 
-                val actionTrackDTOs = chunk.map {
-                    ActionTrackDto(
-                        it.type.value,
-                        it.meta_data.value
-                    )
+                val actionTrackDTOs: MutableList<ActionTrackDto> = mutableListOf()
+
+                chunk.forEach {
+                    it.meta_data.value.toActionTrackMetaDataDtoOrNull(moshi)?.let { metaDataDto ->
+                        actionTrackDTOs.add(
+                            ActionTrackDto(
+                                it.type.value,
+                                metaDataDto
+                            )
+                        )
+                    }
                 }
 
                 networkQueryActionTrack.sendActionsTracked(

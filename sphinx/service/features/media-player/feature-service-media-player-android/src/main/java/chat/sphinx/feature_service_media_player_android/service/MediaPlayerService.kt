@@ -128,6 +128,24 @@ internal abstract class MediaPlayerService: SphinxService() {
             }
         }
 
+        private fun trackPodcastConsumed(episodeId: String) {
+            createHistoryItem()
+
+            val currentHistory = arrayListOf<ContentConsumedHistoryItem>()
+
+            history.forEach(){
+                currentHistory.add(it)
+            }
+
+            episodeId.toFeedId()?.let {
+                actionsRepository.trackPodcastConsumed(it, currentHistory)
+            }
+
+            history.clear()
+
+            resetTrackSecondsConsumed()
+        }
+
         @Synchronized
         fun processUserAction(userAction: UserAction) {
             @Exhaustive
@@ -197,17 +215,7 @@ internal abstract class MediaPlayerService: SphinxService() {
 
                     podData?.let { nnData ->
                         if (nnData.episodeId != userAction.episodeId){
-                            createHistoryItem()
-                            val currentHistory = arrayListOf<ContentConsumedHistoryItem>()
-                                history.forEach(){
-                                    currentHistory.add(it)
-                            }
-                            nnData.episodeId.toFeedId()
-                                ?.let {
-                                    actionsRepository.trackPodcastConsumed(it, currentHistory)
-                                }
-                            history.clear()
-                            resetTrackSecondsConsumed()
+                            trackPodcastConsumed(nnData.episodeId)
                         }
                         if (currentPauseTime != nnData.currentTimeSeconds) {
                             setStartTimestamp(nnData.currentTimeMilliSeconds.toLong())
@@ -320,6 +328,13 @@ internal abstract class MediaPlayerService: SphinxService() {
                     }
                     repositoryMedia.updateChatMetaData(userAction.chatId, null, userAction.chatMetaData)
                 }
+                is UserAction.TrackPodcastConsumed -> {
+                    podData?.let { nnData ->
+                        if (!nnData.mediaPlayer.isPlaying) {
+                            trackPodcastConsumed(nnData.episodeId)
+                        }
+                    }
+                }
             }
         }
 
@@ -354,7 +369,8 @@ internal abstract class MediaPlayerService: SphinxService() {
                             nnData.podcastId,
                             nnData.episodeId,
                             currentTime,
-                            nnData.durationMilliSeconds
+                            nnData.durationMilliSeconds,
+                            nnData.mediaPlayer.playbackParams.speed.toDouble()
                         )
                         mediaServiceController.dispatchState(currentState)
 
@@ -460,7 +476,8 @@ internal abstract class MediaPlayerService: SphinxService() {
                                 nnData.podcastId,
                                 nnData.episodeId,
                                 currentTimeMilliseconds,
-                                nnData.durationMilliSeconds
+                                nnData.durationMilliSeconds,
+                                nnData.mediaPlayer.playbackParams.speed.toDouble()
                             )
                             trackSecondsConsumed++
                         } else {
@@ -471,7 +488,8 @@ internal abstract class MediaPlayerService: SphinxService() {
                                     nnData.podcastId,
                                     nnData.episodeId,
                                     currentTimeMilliseconds,
-                                    nnData.durationMilliSeconds
+                                    nnData.durationMilliSeconds,
+                                    nnData.mediaPlayer.playbackParams.speed.toDouble()
                                 )
                             } else {
                                 MediaPlayerServiceState.ServiceActive.MediaState.Paused(
@@ -479,7 +497,8 @@ internal abstract class MediaPlayerService: SphinxService() {
                                     nnData.podcastId,
                                     nnData.episodeId,
                                     currentTimeMilliseconds,
-                                    nnData.durationMilliSeconds
+                                    nnData.durationMilliSeconds,
+                                    nnData.mediaPlayer.playbackParams.speed.toDouble()
                                 )
                             }
 

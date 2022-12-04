@@ -25,6 +25,7 @@ import chat.sphinx.podcast_player.R
 import chat.sphinx.podcast_player.coordinator.PodcastPlayerViewModelCoordinator
 import chat.sphinx.podcast_player.navigation.BackType
 import chat.sphinx.podcast_player.navigation.PodcastPlayerNavigator
+import chat.sphinx.podcast_player.ui.viewstates.BoostAnimationViewState
 import chat.sphinx.podcast_player.ui.viewstates.PodcastPlayerViewState
 import chat.sphinx.podcast_player_view_model_coordinator.response.PodcastPlayerResponse
 import chat.sphinx.wrapper_chat.ChatHost
@@ -293,7 +294,7 @@ internal class PodcastPlayerViewModel @Inject constructor(
     }
 
     private fun updateFeedContentInBackground() {
-        viewModelScope.launch(mainImmediate) {
+        viewModelScope.launch(io) {
             val chat = chatRepository.getChatById(args.chatId).firstOrNull()
             val podcast = getPodcast()
             val chatHost = chat?.host ?: ChatHost(Feed.TRIBES_DEFAULT_SERVER_URL)
@@ -514,6 +515,16 @@ internal class PodcastPlayerViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    fun trackPodcastConsumed() {
+        viewModelScope.launch(mainImmediate) {
+            mediaPlayerServiceController.submitAction(
+                UserAction.TrackPodcastConsumed(
+                    args.chatId
+                )
+            )
         }
     }
 
