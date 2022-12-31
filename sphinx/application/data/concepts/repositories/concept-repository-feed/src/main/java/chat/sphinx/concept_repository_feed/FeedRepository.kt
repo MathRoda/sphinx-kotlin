@@ -1,6 +1,5 @@
 package chat.sphinx.concept_repository_feed
 
-import chat.sphinx.kotlin_response.LoadResponse
 import chat.sphinx.kotlin_response.Response
 import chat.sphinx.kotlin_response.ResponseError
 import chat.sphinx.wrapper_chat.ChatHost
@@ -17,6 +16,8 @@ import chat.sphinx.wrapper_feed.FeedItem
 import chat.sphinx.wrapper_podcast.Podcast
 import chat.sphinx.wrapper_podcast.FeedSearchResultRow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 interface FeedRepository {
     fun getPodcastByChatId(chatId: ChatId): Flow<Podcast?>
@@ -41,6 +42,10 @@ interface FeedRepository {
     fun getFeedByChatId(chatId: ChatId): Flow<Feed?>
     fun getFeedById(feedId: FeedId): Flow<Feed?>
     fun getFeedItemById(feedItemId: FeedId): Flow<FeedItem?>
+
+    val recommendationsToggleStateFlow: MutableStateFlow<Boolean>
+    fun setRecommendationsToggle(enabled: Boolean)
+    val recommendationsPodcast: MutableStateFlow<Podcast?>
 
     suspend fun toggleFeedSubscribeState(feedId: FeedId, currentSubscribeState: Subscribed)
 }

@@ -109,8 +109,10 @@ import chat.sphinx.wrapper_meme_server.PublicAttachmentInfo
 import chat.sphinx.wrapper_message.*
 import chat.sphinx.wrapper_message_media.*
 import chat.sphinx.wrapper_message_media.token.MediaHost
+import chat.sphinx.wrapper_podcast.FeedRecommendation
 import chat.sphinx.wrapper_podcast.FeedSearchResultRow
 import chat.sphinx.wrapper_podcast.Podcast
+import chat.sphinx.wrapper_podcast.PodcastEpisode
 import chat.sphinx.wrapper_relay.*
 import chat.sphinx.wrapper_rsa.RsaPrivateKey
 import chat.sphinx.wrapper_rsa.RsaPublicKey
@@ -663,6 +665,10 @@ abstract class SphinxRepository(
     ) {
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
+
+            if (podcastId?.value == FeedRecommendation.RECOMMENDATION_PODCAST_ID) {
+                return@launch
+            }
 
             if (chatId.value == ChatId.NULL_CHAT_ID.toLong()) {
                 //Podcast with no chat. Updating current item id
@@ -3969,6 +3975,10 @@ abstract class SphinxRepository(
         )
     }
 
+    override val recommendationsPodcast: MutableStateFlow<Podcast?> by lazy {
+        MutableStateFlow(null)
+    }
+
     override fun getRecommendedFeeds(): Flow<List<FeedRecommendation>> = flow {
 
         var results: MutableList<FeedRecommendation> = mutableListOf()
@@ -3991,8 +4001,12 @@ abstract class SphinxRepository(
                                     largeImageUrl = feedRecommendation.l_image_url,
                                     link = feedRecommendation.link,
                                     title = feedRecommendation.episode_title,
+                                    showTitle = feedRecommendation.show_title,
                                     date = feedRecommendation.date,
-                                    position = index
+                                    timestamp = feedRecommendation.timestamp,
+                                    topics = feedRecommendation.topics,
+                                    guests = feedRecommendation.guests,
+                                    position = index + 1
                                 )
                             )
                         }
@@ -4001,7 +4015,32 @@ abstract class SphinxRepository(
             }
         }.join()
 
+        recommendationsPodcast.value = mapRecommendationsPodcast(results)
+
         emit(results)
+    }
+
+    private val feedRecommendationPodcastPresenterMapper: FeedRecommendationPodcastPresenterMapper by lazy {
+        FeedRecommendationPodcastPresenterMapper()
+    }
+
+    private fun mapRecommendationsPodcast(
+        recommendations: List<FeedRecommendation>
+    ): Podcast? {
+        val podcast = feedRecommendationPodcastPresenterMapper.getRecommendationsPodcast()
+
+        podcast.episodes = recommendations.map {
+            feedRecommendationPodcastPresenterMapper.mapFrom(
+                it,
+                podcast.id
+            )
+        }
+
+        if (podcast.episodes.isEmpty()) {
+            return null
+        }
+
+        return podcast
     }
 
     private suspend fun mapFeedDboList(
@@ -4152,6 +4191,11 @@ abstract class SphinxRepository(
     }
 
     override fun getPodcastById(feedId: FeedId): Flow<Podcast?> = flow {
+        if (feedId.value == FeedRecommendation.RECOMMENDATION_PODCAST_ID) {
+            emit(recommendationsPodcast.value)
+            return@flow
+        }
+
         val queries = coreDB.getSphinxDatabaseQueries()
 
         queries.feedGetById(feedId)
@@ -6031,7 +6075,19 @@ abstract class SphinxRepository(
         ActionTrackDboContentConsumedPresenterMapper(dispatchers, moshi)
     }
 
+    @Suppress("RemoveExplicitTypeArguments")
+    override val recommendationsToggleStateFlow: MutableStateFlow<Boolean> by lazy {
+        MutableStateFlow<Boolean>(false)
+    }
+
+    override fun setRecommendationsToggle(enabled: Boolean) {
+        recommendationsToggleStateFlow.value = enabled
+    }
+
     override fun trackFeedSearchAction(searchTerm: String) {
+        if (!recommendationsToggleStateFlow.value) {
+            return
+        }
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
 
@@ -6059,11 +6115,16 @@ abstract class SphinxRepository(
         feedItemId: FeedId,
         topics: ArrayList<String>
     ) {
+        if (!recommendationsToggleStateFlow.value) {
+            return
+        }
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
 
             getFeedItemById(feedItemId).firstOrNull()?.let { feedItem ->
                 getFeedById(feedItem.feedId).firstOrNull()?.let { feed ->
+                    feedItem.feed = feed
+
                     val contentBoostAction = ContentBoostAction(
                         boost,
                         feed.id.value,
@@ -6071,7 +6132,12 @@ abstract class SphinxRepository(
                         feed.feedUrl.value,
                         feedItem.id.value,
                         feedItem.enclosureUrl.value,
+                        feed.titleToShow,
+                        feedItem.titleToShow,
+                        feedItem.descriptionToShow,
                         topics,
+                        feedItem.people,
+                        feedItem.datePublishedTime,
                         Date().time
                     )
 
@@ -6091,18 +6157,28 @@ abstract class SphinxRepository(
         timestamp: Long,
         topics: ArrayList<String>
     ) {
+        if (!recommendationsToggleStateFlow.value) {
+            return
+        }
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
 
             getFeedItemById(feedItemId).firstOrNull()?.let { feedItem ->
                 getFeedById(feedItem.feedId).firstOrNull()?.let { feed ->
+                    feedItem.feed = feed
+
                     val podcastClipCommentAction = PodcastClipCommentAction(
                         feed.id.value,
                         feed.feedType.value.toLong(),
                         feed.feedUrl.value,
                         feedItem.id.value,
                         feedItem.enclosureUrl.value,
+                        feed.titleToShow,
+                        feedItem.titleToShow,
+                        feedItem.descriptionToShow,
                         topics,
+                        feedItem.people,
+                        feedItem.datePublishedTime,
                         timestamp,
                         timestamp,
                         Date().time
@@ -6120,17 +6196,29 @@ abstract class SphinxRepository(
     }
 
     override fun trackNewsletterConsumed(feedItemId: FeedId) {
+        if (!recommendationsToggleStateFlow.value) {
+            return
+        }
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
 
             getFeedItemById(feedItemId).firstOrNull()?.let { feedItem ->
                 getFeedById(feedItem.feedId).firstOrNull()?.let { feed ->
+                    feedItem.feed = feed
+
                     val newsletterConsumedAction = ContentConsumedAction(
                         feed.id.value,
                         feed.feedType.value.toLong(),
                         feed.feedUrl.value,
                         feedItem.id.value,
-                        feedItem.enclosureUrl.value
+                        feedItem.enclosureUrl.value,
+                        feed.titleToShow,
+                        feedItem.titleToShow,
+                        feedItem.descriptionToShow,
+                        0,
+                        arrayListOf(),
+                        feedItem.people,
+                        feedItem.datePublishedTime
                     )
 
                     val contentConsumedHistoryItem = ContentConsumedHistoryItem(
@@ -6152,28 +6240,48 @@ abstract class SphinxRepository(
         }
     }
 
-    override fun trackVideoConsumed(
+    override fun trackMediaContentConsumed(
         feedItemId: FeedId,
         history: ArrayList<ContentConsumedHistoryItem>
     ) {
+        if (!recommendationsToggleStateFlow.value) {
+            return
+        }
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
 
             getFeedItemById(feedItemId).firstOrNull()?.let { feedItem ->
                 getFeedById(feedItem.feedId).firstOrNull()?.let { feed ->
+                    feedItem.feed = feed
 
-                    val videoConsumedAction = ContentConsumedAction(
+                    val contentConsumedAction = ContentConsumedAction(
                         feed.id.value,
                         feed.feedType.value.toLong(),
                         feed.feedUrl.value,
                         feedItem.id.value,
-                        feedItem.enclosureUrl.value
+                        feedItem.enclosureUrl.value,
+                        feed.titleToShow,
+                        feedItem.titleToShow,
+                        feedItem.descriptionToShow,
+                        0,
+                        arrayListOf(),
+                        feedItem.people,
+                        feedItem.datePublishedTime
                     )
-                    videoConsumedAction.history = history
+
+                    contentConsumedAction.history = ArrayList(
+                        history.filter {
+                            (it.endTimestamp - it.startTimestamp) > 2000.toLong()
+                        }
+                    )
+
+                    if (contentConsumedAction.history.isEmpty()) {
+                        return@launch
+                    }
 
                     queries.actionTrackUpsert(
                         ActionTrackType.ContentConsumed,
-                        ActionTrackMetaData(videoConsumedAction.toJson(moshi)),
+                        ActionTrackMetaData(contentConsumedAction.toJson(moshi)),
                         false.toActionTrackUploaded(),
                         ActionTrackId(Long.MAX_VALUE)
                     )
@@ -6182,28 +6290,48 @@ abstract class SphinxRepository(
         }
     }
 
-    override fun trackPodcastConsumed(
+    override fun trackRecommendationsConsumed(
         feedItemId: FeedId,
         history: ArrayList<ContentConsumedHistoryItem>
     ) {
+        if (!recommendationsToggleStateFlow.value) {
+            return
+        }
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
 
-            getFeedItemById(feedItemId).firstOrNull()?.let { feedItem ->
-                getFeedById(feedItem.feedId).firstOrNull()?.let { feed ->
+            recommendationsPodcast.value?.let { recommendationsPodcast ->
+                recommendationsPodcast.getEpisodeWithId(feedItemId.value)?.let { recommendation ->
+                    val clipRank = recommendationsPodcast.getItemRankForEpisodeWithId(feedItemId.value).toLong()
 
-                    val podcastConsumedAction = ContentConsumedAction(
-                        feed.id.value,
-                        feed.feedType.value.toLong(),
-                        feed.feedUrl.value,
-                        feedItem.id.value,
-                        feedItem.enclosureUrl.value
+                    val contentConsumedAction = ContentConsumedAction(
+                        recommendationsPodcast.id.value,
+                        recommendation.longType,
+                        recommendationsPodcast.feedUrl.value,
+                        recommendation.id.value,
+                        recommendation.enclosureUrl.value,
+                        recommendation.showTitleToShow,
+                        recommendation.titleToShow,
+                        recommendation.descriptionToShow,
+                        clipRank,
+                        ArrayList(recommendation.topics),
+                        ArrayList(recommendation.people),
+                        recommendation.datePublishedTime
                     )
-                    podcastConsumedAction.history = history
+
+                    contentConsumedAction.history = ArrayList(
+                        history.filter {
+                            (it.endTimestamp - it.startTimestamp) > 2000.toLong()
+                        }
+                    )
+
+                    if (contentConsumedAction.history.isEmpty()) {
+                        return@launch
+                    }
 
                     queries.actionTrackUpsert(
                         ActionTrackType.ContentConsumed,
-                        ActionTrackMetaData(podcastConsumedAction.toJson(moshi)),
+                        ActionTrackMetaData(contentConsumedAction.toJson(moshi)),
                         false.toActionTrackUploaded(),
                         ActionTrackId(Long.MAX_VALUE)
                     )
@@ -6213,6 +6341,9 @@ abstract class SphinxRepository(
     }
 
     override fun trackMessageContent(keywords: List<String>) {
+        if (!recommendationsToggleStateFlow.value) {
+            return
+        }
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
 
@@ -6231,6 +6362,9 @@ abstract class SphinxRepository(
     }
 
     override fun syncActions() {
+        if (!recommendationsToggleStateFlow.value) {
+            return
+        }
         applicationScope.launch(io) {
             val queries = coreDB.getSphinxDatabaseQueries()
 
@@ -6268,4 +6402,11 @@ abstract class SphinxRepository(
         }
     }
 
+    override val appLogsStateFlow: MutableStateFlow<String> by lazy {
+        MutableStateFlow("")
+    }
+
+    override fun setAppLog(log: String) {
+        appLogsStateFlow.value = appLogsStateFlow.value + log + "\n"
+    }
 }

@@ -287,6 +287,8 @@ internal class FeedFragment : SideEffectFragment<
                         is FeedChipsViewState.All -> {
                             viewPagerFeedFragments.currentItem =
                                 FeedFragmentsAdapter.CHIP_ALL_POSITION
+
+                            viewModel.syncActions()
                         }
                         is FeedChipsViewState.Listen -> {
                             viewPagerFeedFragments.currentItem =

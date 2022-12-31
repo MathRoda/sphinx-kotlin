@@ -1,21 +1,19 @@
 package chat.sphinx.dashboard.ui.feed.all
 
-import android.content.Context
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.View
 import android.widget.ImageView
+import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.viewModels
 import by.kirich1409.viewbindingdelegate.viewBinding
 import chat.sphinx.concept_image_loader.ImageLoader
 import chat.sphinx.dashboard.R
 import chat.sphinx.dashboard.databinding.FragmentFeedAllBinding
 import chat.sphinx.dashboard.ui.adapter.FeedFollowingAdapter
-import chat.sphinx.dashboard.ui.adapter.FeedListenNowAdapter
 import chat.sphinx.dashboard.ui.adapter.FeedRecommendationsAdapter
-import chat.sphinx.dashboard.ui.feed.listen.FeedListenFragment
-import chat.sphinx.dashboard.ui.feed.listen.FeedListenSideEffect
+import chat.sphinx.dashboard.ui.feed.FeedFragment
 import chat.sphinx.dashboard.ui.viewstates.FeedAllViewState
-import chat.sphinx.dashboard.ui.viewstates.FeedListenViewState
 import dagger.hilt.android.AndroidEntryPoint
 import io.matthewnelson.android_feature_screens.ui.sideeffect.SideEffectFragment
 import io.matthewnelson.android_feature_screens.util.gone
@@ -28,7 +26,7 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 internal class FeedAllFragment : SideEffectFragment<
-        Context,
+        FragmentActivity,
         FeedAllSideEffect,
         FeedAllViewState,
         FeedAllViewModel,
@@ -48,6 +46,27 @@ internal class FeedAllFragment : SideEffectFragment<
         setupRecommendationsAdapter()
         setupFollowingAdapter()
         setupRefreshButton()
+        setupNestedScrollView()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.loadFeedRecommendations()
+    }
+
+    @SuppressLint("RestrictedApi")
+    private fun setupNestedScrollView() {
+        binding.scrollViewContent.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            if (parentFragment is FeedFragment) {
+                val bottomOfScroll = !binding.scrollViewContent.canScrollVertically(1)
+                val topOfScroll = !binding.scrollViewContent.canScrollVertically(-1)
+                val scrollNotAvailable = (bottomOfScroll && topOfScroll)
+
+                (parentFragment as FeedFragment)?.shouldToggleNavBar(
+                    (scrollY <= oldScrollY && !bottomOfScroll) || scrollNotAvailable
+                )
+            }
+        }
     }
 
     private fun setupFollowingAdapter() {
@@ -83,7 +102,7 @@ internal class FeedAllFragment : SideEffectFragment<
     }
 
     override suspend fun onSideEffectCollect(sideEffect: FeedAllSideEffect) {
-        sideEffect.execute(binding.root.context)
+        sideEffect.execute(requireActivity())
     }
 
     companion object {
@@ -111,6 +130,16 @@ internal class FeedAllFragment : SideEffectFragment<
                     layoutConstraintLoading.gone
                     layoutConstraintRefresh.visible
                     recyclerViewRecommendations.visible
+                    layoutConstraintNoRecommendations.gone
+                }
+                is FeedAllViewState.Disabled -> {
+                    textViewListenRecommendationsHeader.gone
+                    textView2.gone
+                    layoutConstraintRefresh.gone
+                    refreshButtonIcon.gone
+                    layoutConstraintLoading.gone
+                    layoutConstraintRefresh.gone
+                    recyclerViewRecommendations.gone
                     layoutConstraintNoRecommendations.gone
                 }
             }

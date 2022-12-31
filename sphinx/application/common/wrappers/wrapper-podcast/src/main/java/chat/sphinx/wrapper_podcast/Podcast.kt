@@ -29,6 +29,26 @@ data class Podcast(
     val subscribed: Subscribed
 ) {
 
+    companion object {
+        @Suppress("ObjectPropertyName")
+        private const val _17 = 17
+        @Suppress("ObjectPropertyName")
+        private const val _31 = 31
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (other is Podcast) {
+            return episodes == other.episodes
+        }
+        return false
+    }
+
+    override fun hashCode(): Int {
+        var result = _17
+        result = _31 * result + episodes.hashCode()
+        return result
+    }
+
     var model: PodcastModel? = null
     var destinations: List<PodcastDestination> = arrayListOf()
     var episodes: List<PodcastEpisode> = arrayListOf()
@@ -96,6 +116,14 @@ data class Podcast(
         playingEpisode = getEpisodeWithId(metaData.itemId.value)
     }
 
+    fun setCurrentEpisodeWith(episodeId: String) {
+        this.playingEpisode?.playing = false
+
+        this.playingEpisode = getEpisodeWithId(episodeId)
+        this.episodeDuration = null
+        this.timeMilliSeconds = 0
+    }
+
     fun getMetaData(
         customAmount: Sat? = null
     ): ChatMetaData =
@@ -137,14 +165,23 @@ data class Podcast(
         return null
     }
 
-    private fun getEpisodeWithId(id: String): PodcastEpisode? {
+    fun getEpisodeWithId(id: String): PodcastEpisode? {
         for (episode in episodes) {
             if (episode.id.value == id) {
                 return episode
             }
         }
+        return null
+    }
 
-        return episodes[0]
+    fun getItemRankForEpisodeWithId(id: String): Int {
+        episodes.forEachIndexed { index, episode ->
+            if (episode.id.value == id) {
+                return index + 1
+            }
+        }
+
+        return 0
     }
 
     private fun getNextEpisode(id: String): PodcastEpisode {
@@ -225,7 +262,14 @@ data class Podcast(
         this.timeMilliSeconds = time
     }
 
-    fun playingEpisodeUpdate(episodeId: String, time: Int, duration: Long) {
+    fun playingEpisodeUpdate(
+        episodeId: String,
+        time: Int,
+        duration: Long,
+        speed: Double
+    ) {
+        this.speed = speed
+
         if (playingEpisode == null) {
             this.episodeId?.let { currentEpisodeId ->
                 this.playingEpisode = getEpisodeWithId(currentEpisodeId)

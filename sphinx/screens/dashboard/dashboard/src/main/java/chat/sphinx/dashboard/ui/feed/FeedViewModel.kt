@@ -48,6 +48,8 @@ class FeedViewModel @Inject constructor(
     }
 
     private var searchFeedsJob: Job? = null
+    private var searchFeedsTerm: MutableList<String> = mutableListOf()
+
     suspend fun searchFeedsBy(
         searchTerm: String,
         feedType: FeedType?,
@@ -88,7 +90,7 @@ class FeedViewModel @Inject constructor(
                 feedType
             ).collect { searchResults ->
 
-                actionsRepository.trackFeedSearchAction(
+                addSearchTerm(
                     searchTerm.lowercase().trim()
                 )
 
@@ -119,6 +121,28 @@ class FeedViewModel @Inject constructor(
         }
     }
 
+    private fun addSearchTerm(searchTerm: String) {
+        searchFeedsTerm.lastOrNull()?.let { st ->
+            if (searchTerm.contains(st)) {
+                searchFeedsTerm.remove(st)
+            } else if (st.contains(searchTerm)) {
+                return
+            } else {}
+        }
+        searchFeedsTerm.add(searchTerm)
+    }
+
+    private fun trackSearches() {
+        for (searchTerm in searchFeedsTerm) {
+            actionsRepository.trackFeedSearchAction(searchTerm)
+        }
+        searchFeedsTerm.clear()
+    }
+
+    fun syncActions() {
+        actionsRepository.syncActions()
+    }
+
     fun toggleSearchState(searchFieldActive: Boolean) {
         val viewState = currentViewState
 
@@ -143,6 +167,8 @@ class FeedViewModel @Inject constructor(
         ) {
             updateViewState(FeedViewState.Idle)
         }
+
+        trackSearches()
     }
 
     private var searchResultSelectedJob: Job? = null
@@ -215,5 +241,7 @@ class FeedViewModel @Inject constructor(
             }
         }
         searchResultSelectedJob?.cancel()
+
+        trackSearches()
     }
 }

@@ -37,11 +37,9 @@ import chat.sphinx.chat_common.ui.viewstate.attachment.AttachmentFullscreenViewS
 import chat.sphinx.chat_common.ui.viewstate.attachment.AttachmentSendViewState
 import chat.sphinx.chat_common.ui.viewstate.footer.FooterViewState
 import chat.sphinx.chat_common.ui.viewstate.header.ChatHeaderViewState
+import chat.sphinx.chat_common.ui.viewstate.mentions.MessageMentionsViewState
 import chat.sphinx.chat_common.ui.viewstate.menu.ChatMenuViewState
 import chat.sphinx.chat_common.ui.viewstate.messageholder.*
-import chat.sphinx.chat_common.ui.viewstate.messageholder.BubbleBackground
-import chat.sphinx.chat_common.ui.viewstate.messageholder.LayoutState
-import chat.sphinx.chat_common.ui.viewstate.messageholder.MessageHolderViewState
 import chat.sphinx.chat_common.ui.viewstate.messagereply.MessageReplyViewState
 import chat.sphinx.chat_common.ui.viewstate.search.MessagesSearchViewState
 import chat.sphinx.chat_common.ui.viewstate.selected.SelectedMessageViewState
@@ -97,11 +95,11 @@ import io.matthewnelson.concept_views.viewstate.ViewStateContainer
 import io.matthewnelson.concept_views.viewstate.value
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import org.jitsi.meet.sdk.JitsiMeet
 import org.jitsi.meet.sdk.JitsiMeetActivity
 import org.jitsi.meet.sdk.JitsiMeetConferenceOptions
 import org.jitsi.meet.sdk.JitsiMeetUserInfo
 import java.io.*
-import kotlin.collections.ArrayList
 
 
 @JvmSynthetic
@@ -162,6 +160,10 @@ abstract class ChatViewModel<ARGS : NavArgs>(
 
     val moreOptionsMenuHandler: ViewStateContainer<MenuBottomViewState> by lazy {
         ViewStateContainer(MenuBottomViewState.Closed)
+    }
+
+    val messageMentionsViewStateContainer: ViewStateContainer<MessageMentionsViewState> by lazy {
+        ViewStateContainer(MessageMentionsViewState.MessageMentions(listOf()))
     }
 
     protected abstract val chatSharedFlow: SharedFlow<Chat?>
@@ -859,7 +861,7 @@ abstract class ChatViewModel<ARGS : NavArgs>(
      * then passes it off to the [MessageRepository] for processing.
      * */
     @CallSuper
-    open fun sendMessage(builder: SendMessage.Builder): SendMessage? {
+    open suspend fun sendMessage(builder: SendMessage.Builder): SendMessage? {
         val msg = builder.build()
 
         msg.second?.let { validationError ->
@@ -1602,7 +1604,10 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         SphinxCallLink.newCallInvite(meetingServerUrl, audioOnly)?.value?.let { newCallLink ->
             val messageBuilder = SendMessage.Builder()
             messageBuilder.setText(newCallLink)
-            sendMessage(messageBuilder)
+
+            viewModelScope.launch(mainImmediate) {
+                sendMessage(messageBuilder)
+            }
         }
     }
 
@@ -1642,11 +1647,7 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                         .setUserInfo(userInfo)
                         .build()
 
-                    val intent = Intent(app, JitsiMeetActivity::class.java)
-                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    intent.action = "org.jitsi.meet.CONFERENCE"
-                    intent.putExtra("JitsiMeetConferenceOptions", options)
-                    app.startActivity(intent)
+                    JitsiMeetActivity.launch(app, options)
                 }
             }
         }
@@ -1950,6 +1951,34 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         viewModelScope.launch(mainImmediate) {
             submitSideEffect(sideEffect)
         }
+    }
+
+    fun processMemberMention(s: CharSequence?) {
+        val lastWord = s?.split(" ")?.last()?.toString() ?: ""
+
+        if (lastWord.startsWith("@") && lastWord.length > 1) {
+            val matchingMessages = messageHolderViewStateFlow.value.filter { messageHolder ->
+                messageHolder.message?.senderAlias?.value?.let { member ->
+                    (member.startsWith(lastWord.replace("@", ""), true))
+                } ?: false
+            }
+
+            val matchingAliases = matchingMessages.map { it.message?.senderAlias?.value ?: "" }.distinct()
+
+            messageMentionsViewStateContainer.updateViewState(
+                MessageMentionsViewState.MessageMentions(matchingAliases)
+            )
+
+        } else {
+            messageMentionsViewStateContainer.updateViewState(
+                MessageMentionsViewState.MessageMentions(listOf())
+            )
+        }
+
+    }
+
+    fun sendAppLog(appLog: String) {
+        actionsRepository.setAppLog(appLog)
     }
 
     override fun onCleared() {

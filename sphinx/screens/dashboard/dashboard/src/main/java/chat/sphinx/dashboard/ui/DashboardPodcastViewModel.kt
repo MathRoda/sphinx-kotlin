@@ -19,6 +19,7 @@ import chat.sphinx.dashboard.ui.viewstates.PlayingPodcastViewState.NoPodcast.cli
 import chat.sphinx.dashboard.ui.viewstates.adjustState
 import chat.sphinx.wrapper_common.feed.toFeedId
 import chat.sphinx.wrapper_common.lightning.*
+import chat.sphinx.wrapper_podcast.FeedRecommendation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.matthewnelson.android_feature_viewmodel.BaseViewModel
 import io.matthewnelson.concept_coroutines.CoroutineDispatchers
@@ -48,6 +49,16 @@ internal class DashboardPodcastViewModel @Inject constructor(
 
     init {
         mediaPlayerServiceController.addListener(this@DashboardPodcastViewModel)
+
+        viewModelScope.launch(mainImmediate) {
+            feedRepository.recommendationsPodcast.collect {
+                (playingPodcastViewStateContainer.value as? PlayingPodcastViewState.PodcastVS)?.let { viewState ->
+                    if (viewState.podcast.id?.value == FeedRecommendation.RECOMMENDATION_PODCAST_ID) {
+                        playingPodcastViewStateContainer.updateViewState(PlayingPodcastViewState.NoPodcast)
+                    }
+                }
+            }
+        }
     }
 
     private var currentServiceState: MediaPlayerServiceState = MediaPlayerServiceState.ServiceInactive
@@ -73,7 +84,8 @@ internal class DashboardPodcastViewModel @Inject constructor(
                 vs.podcast.playingEpisodeUpdate(
                     serviceState.episodeId,
                     serviceState.currentTime,
-                    serviceState.episodeDuration.toLong()
+                    serviceState.episodeDuration.toLong(),
+                    serviceState.speed
                 )
 
                 vs.adjustState(
@@ -244,7 +256,7 @@ internal class DashboardPodcastViewModel @Inject constructor(
                 showLoading = false,
                 showPlayButton = !isPlaying,
                 title = podcast.getCurrentEpisode().title.value,
-                subtitle = podcast.author?.value ?: podcast.title.value,
+                subtitle = podcast.author?.value ?: podcast.getCurrentEpisode().showTitle?.value ?: podcast.title.value,
                 imageUrl = podcast.imageToShow?.value,
                 playingProgress = playingProgress,
                 clickPlayPause = clickPlayPause,
@@ -289,12 +301,20 @@ internal class DashboardPodcastViewModel @Inject constructor(
         vs: PlayingPodcastViewState.PodcastVS
     ) {
         viewModelScope.launch(mainImmediate) {
-            dashboardNavigator.toPodcastPlayerScreen(
-                vs.podcast.chatId,
-                vs.podcast.id,
-                vs.podcast.feedUrl,
-                vs.podcast.episodeDuration ?: 0
-            )
+            if (vs.podcast.id.value == FeedRecommendation.RECOMMENDATION_PODCAST_ID) {
+                dashboardNavigator.toCommonPlayerScreen(
+                    vs.podcast.id,
+                    vs.podcast.getCurrentEpisode().id,
+                    vs.podcast.episodeDuration ?: 0
+                )
+            } else {
+                dashboardNavigator.toPodcastPlayerScreen(
+                    vs.podcast.chatId,
+                    vs.podcast.id,
+                    vs.podcast.feedUrl,
+                    vs.podcast.episodeDuration ?: 0
+                )
+            }
         }
     }
 

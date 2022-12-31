@@ -1,5 +1,24 @@
 # ChangeLog
 
+# Version 1.0.0-alpha77 (2022-12-27)
+- Improves actions tracking
+- Improves recommendations player
+
+# Version 1.0.0-alpha76 (2022-12-23)
+- Improves actions tracking
+- Improves recommendations player
+
+# Version 1.0.0-alpha75 (2022-12-21)
+- Improves actions tracking
+- Improves recommendations player
+- Recommendations off by default
+- Fixes crash on Jitsi Meet call
+
+# Version 1.0.0-alpha74 (2022-12-14)
+- Improves podcast and video search
+- Improves recommendations player
+- Adds mentions autocomplete on tribes
+
 # Version 1.0.0-alpha73 (2022-11-30)
 - Fixes feed search for videos and podcasts
 
