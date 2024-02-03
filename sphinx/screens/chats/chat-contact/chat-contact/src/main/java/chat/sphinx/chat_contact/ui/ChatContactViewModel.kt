@@ -19,6 +19,8 @@ import chat.sphinx.concept_network_query_people.NetworkQueryPeople
 import chat.sphinx.concept_repository_actions.ActionsRepository
 import chat.sphinx.concept_repository_chat.ChatRepository
 import chat.sphinx.concept_repository_contact.ContactRepository
+import chat.sphinx.concept_repository_dashboard_android.RepositoryDashboardAndroid
+import chat.sphinx.concept_repository_feed.FeedRepository
 import chat.sphinx.concept_repository_media.RepositoryMedia
 import chat.sphinx.concept_repository_message.MessageRepository
 import chat.sphinx.concept_repository_message.model.SendMessage
@@ -33,7 +35,6 @@ import chat.sphinx.wrapper_chat.ChatName
 import chat.sphinx.wrapper_common.PhotoUrl
 import chat.sphinx.wrapper_common.dashboard.ChatId
 import chat.sphinx.wrapper_common.dashboard.ContactId
-import chat.sphinx.wrapper_common.feed.FeedId
 import chat.sphinx.wrapper_common.message.MessageUUID
 import chat.sphinx.wrapper_common.util.getInitials
 import chat.sphinx.wrapper_contact.Contact
@@ -42,6 +43,8 @@ import chat.sphinx.wrapper_contact.getColorKey
 import chat.sphinx.wrapper_contact.isEncrypted
 import chat.sphinx.wrapper_message.Message
 import chat.sphinx.wrapper_message.PodcastClip
+import chat.sphinx.wrapper_message.ThreadUUID
+import com.squareup.moshi.Moshi
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.matthewnelson.android_feature_navigation.util.navArgs
 import io.matthewnelson.android_feature_viewmodel.submitSideEffect
@@ -70,10 +73,12 @@ internal class ChatContactViewModel @Inject constructor(
     memeServerTokenHandler: MemeServerTokenHandler,
     contactChatNavigator: ContactChatNavigator,
     repositoryMedia: RepositoryMedia,
+    feedRepository: FeedRepository,
     chatRepository: ChatRepository,
     contactRepository: ContactRepository,
     messageRepository: MessageRepository,
     actionsRepository: ActionsRepository,
+    repositoryDashboard: RepositoryDashboardAndroid<Any>,
     networkQueryLightning: NetworkQueryLightning,
     networkQueryPeople: NetworkQueryPeople,
     mediaCacheHandler: MediaCacheHandler,
@@ -81,6 +86,7 @@ internal class ChatContactViewModel @Inject constructor(
     cameraViewModelCoordinator: ViewModelCoordinator<CameraRequest, CameraResponse>,
     linkPreviewHandler: LinkPreviewHandler,
     memeInputStreamHandler: MemeInputStreamHandler,
+    moshi: Moshi,
     LOG: SphinxLogger,
 ): ChatViewModel<ChatContactFragmentArgs>(
     app,
@@ -88,10 +94,12 @@ internal class ChatContactViewModel @Inject constructor(
     memeServerTokenHandler,
     contactChatNavigator,
     repositoryMedia,
+    feedRepository,
     chatRepository,
     contactRepository,
     messageRepository,
     actionsRepository,
+    repositoryDashboard,
     networkQueryLightning,
     networkQueryPeople,
     mediaCacheHandler,
@@ -99,6 +107,7 @@ internal class ChatContactViewModel @Inject constructor(
     cameraViewModelCoordinator,
     linkPreviewHandler,
     memeInputStreamHandler,
+    moshi,
     LOG,
 ) {
     override val args: ChatContactFragmentArgs by savedStateHandle.navArgs()
@@ -191,6 +200,9 @@ internal class ChatContactViewModel @Inject constructor(
             )
         }
     }
+
+    override val threadSharedFlow: SharedFlow<List<Message>>?
+        get() = null
 
     override fun forceKeyExchange() {
         viewModelScope.launch(io) {
@@ -323,6 +335,16 @@ internal class ChatContactViewModel @Inject constructor(
                 messageRepository.readMessages(idResolved)
             }
         }
+    }
+
+    override fun reloadPinnedMessage() {}
+
+    override fun getThreadUUID(): ThreadUUID? {
+        return null
+    }
+
+    override fun isThreadChat(): Boolean {
+        return false
     }
 
     override suspend fun sendMessage(builder: SendMessage.Builder): SendMessage? {

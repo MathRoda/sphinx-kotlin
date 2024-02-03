@@ -10,7 +10,9 @@ import by.kirich1409.viewbindingdelegate.viewBinding
 import chat.sphinx.concept_image_loader.ImageLoader
 import chat.sphinx.dashboard.R
 import chat.sphinx.dashboard.databinding.FragmentFeedAllBinding
+import chat.sphinx.dashboard.ui.adapter.FeedDownloadedAdapter
 import chat.sphinx.dashboard.ui.adapter.FeedFollowingAdapter
+import chat.sphinx.dashboard.ui.adapter.FeedRecentlyPlayedAdapter
 import chat.sphinx.dashboard.ui.adapter.FeedRecommendationsAdapter
 import chat.sphinx.dashboard.ui.feed.FeedFragment
 import chat.sphinx.dashboard.ui.viewstates.FeedAllViewState
@@ -45,6 +47,8 @@ internal class FeedAllFragment : SideEffectFragment<
 
         setupRecommendationsAdapter()
         setupFollowingAdapter()
+        setupRecentlyPlayedAdapter()
+        setupDownloadedAdapter()
         setupRefreshButton()
         setupNestedScrollView()
     }
@@ -85,6 +89,22 @@ internal class FeedAllFragment : SideEffectFragment<
         }
     }
 
+    private fun setupRecentlyPlayedAdapter() {
+        binding.recyclerViewRecentlyPlayed.apply {
+            val recentlyPlayedAdapter = FeedRecentlyPlayedAdapter(
+                imageLoader,
+                viewLifecycleOwner,
+                onStopSupervisor,
+                viewModel,
+                viewModel
+            )
+
+            this.setHasFixedSize(false)
+            adapter = recentlyPlayedAdapter
+            itemAnimator = null
+        }
+    }
+
     private fun setupRecommendationsAdapter() {
         binding.recyclerViewRecommendations.apply {
             val listenNowAdapter = FeedRecommendationsAdapter(
@@ -97,6 +117,21 @@ internal class FeedAllFragment : SideEffectFragment<
 
             this.setHasFixedSize(false)
             adapter = listenNowAdapter
+            itemAnimator = null
+        }
+    }
+
+    private fun setupDownloadedAdapter() {
+        binding.recyclerViewDownloaded.apply {
+            val downloadedAdapter = FeedDownloadedAdapter(
+                imageLoader,
+                viewLifecycleOwner,
+                onStopSupervisor,
+                viewModel,
+                viewModel
+            )
+            this.setHasFixedSize(false)
+            adapter = downloadedAdapter
             itemAnimator = null
         }
     }
@@ -156,6 +191,26 @@ internal class FeedAllFragment : SideEffectFragment<
                 )
             }
         }
+
+        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+            viewModel.feedDownloadedHolderViewStateFlow.collect { list ->
+                if (list.isEmpty()) {
+                    binding.layoutConstraintDownloadedSection.gone
+                } else {
+                    binding.layoutConstraintDownloadedSection.visible
+                }
+            }
+        }
+
+        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+            viewModel.lastPlayedFeedsHolderViewStateFlow.collect { list ->
+                if (list.isEmpty()) {
+                    binding.layoutConstraintRecentlyPlayed.gone
+                } else {
+                    binding.layoutConstraintRecentlyPlayed.visible
+                }
+            }
+        }
     }
 
     private fun toggleElements(contentAvailable: Boolean) {
@@ -171,4 +226,5 @@ internal class FeedAllFragment : SideEffectFragment<
             }
         }
     }
+
 }

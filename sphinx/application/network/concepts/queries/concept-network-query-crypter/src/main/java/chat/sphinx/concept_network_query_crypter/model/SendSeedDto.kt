@@ -4,8 +4,8 @@ class SendSeedDto {
     var seed: String? = null
     var ssid: String? = null
     var pass: String? = null
-    var lightningNodeIP: String? = null
-    var lightningNodePort: String? = null
+    var lightningNodeUrl: String? = null
     var pubkey: String? = null
-    var network: String = "regtest"
+    var network: String? = null
+    var relayUrl: String? = null
 }

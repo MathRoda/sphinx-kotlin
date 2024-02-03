@@ -11,7 +11,8 @@ import android.os.ParcelFileDescriptor
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
-import android.view.*
+import android.view.View
+import android.view.Window
 import android.view.inputmethod.InputMethodManager
 import android.widget.ImageView
 import androidx.activity.OnBackPressedCallback
@@ -44,11 +45,13 @@ import chat.sphinx.chat_common.ui.viewstate.header.ChatHeaderViewState
 import chat.sphinx.chat_common.ui.viewstate.menu.ChatMenuViewState
 import chat.sphinx.chat_common.ui.viewstate.messageholder.setView
 import chat.sphinx.chat_common.ui.viewstate.messagereply.MessageReplyViewState
+import chat.sphinx.chat_common.ui.viewstate.scrolldown.ScrollDownViewState
 import chat.sphinx.chat_common.ui.viewstate.search.MessagesSearchViewState
 import chat.sphinx.chat_common.ui.viewstate.selected.MenuItemState
 import chat.sphinx.chat_common.ui.viewstate.selected.SelectedMessageViewState
 import chat.sphinx.chat_common.ui.viewstate.selected.setMenuColor
 import chat.sphinx.chat_common.ui.viewstate.selected.setMenuItems
+import chat.sphinx.chat_common.ui.viewstate.shimmer.ShimmerViewState
 import chat.sphinx.chat_common.ui.widgets.SlideToCancelImageView
 import chat.sphinx.chat_common.ui.widgets.SphinxFullscreenImageView
 import chat.sphinx.chat_common.util.AudioRecorderController
@@ -61,7 +64,10 @@ import chat.sphinx.concept_network_client_crypto.CryptoScheme
 import chat.sphinx.concept_repository_message.model.AttachmentInfo
 import chat.sphinx.concept_repository_message.model.SendMessage
 import chat.sphinx.concept_user_colors_helper.UserColorsHelper
-import chat.sphinx.insetter_activity.*
+import chat.sphinx.insetter_activity.InsetterActivity
+import chat.sphinx.insetter_activity.addKeyboardPadding
+import chat.sphinx.insetter_activity.addNavigationBarPadding
+import chat.sphinx.insetter_activity.addStatusBarPadding
 import chat.sphinx.keyboard_inset_fragment.KeyboardInsetMotionLayoutFragment
 import chat.sphinx.kotlin_response.LoadResponse
 import chat.sphinx.kotlin_response.Response
@@ -70,15 +76,14 @@ import chat.sphinx.menu_bottom.model.MenuBottomOption
 import chat.sphinx.menu_bottom.ui.BottomMenu
 import chat.sphinx.menu_bottom.ui.MenuBottomViewState
 import chat.sphinx.resources.*
-import chat.sphinx.wrapper_chat.isTrue
 import chat.sphinx.wrapper_common.FileSize
 import chat.sphinx.wrapper_common.asFormattedString
+import chat.sphinx.wrapper_common.chat.PushNotificationLink
 import chat.sphinx.wrapper_common.lightning.asFormattedString
 import chat.sphinx.wrapper_common.lightning.toSat
 import chat.sphinx.wrapper_common.message.MessageId
 import chat.sphinx.wrapper_common.util.getHHMMSSString
 import chat.sphinx.wrapper_common.util.getHHMMString
-import chat.sphinx.wrapper_contact.Contact
 import chat.sphinx.wrapper_meme_server.headerKey
 import chat.sphinx.wrapper_meme_server.headerValue
 import chat.sphinx.wrapper_message.*
@@ -124,6 +129,10 @@ abstract class ChatFragment<
     protected abstract val callMenuBinding: LayoutMenuBottomBinding
     protected abstract val moreMenuBinding: LayoutMenuBottomBinding
     protected abstract val recyclerView: RecyclerView
+    protected abstract val pinHeaderBinding: LayoutChatPinedMessageHeaderBinding?
+    protected abstract val threadOriginalMessageBinding: LayoutThreadOriginalMessageBinding?
+    protected abstract val scrollDownButtonBinding: LayoutScrollDownButtonBinding
+    protected abstract val shimmerBinding: LayoutShimmerContainerBinding
 
     protected abstract val menuEnablePayments: Boolean
 
@@ -198,9 +207,26 @@ abstract class ChatFragment<
         setupHeader(insetterActivity)
         setupAttachmentSendPreview(insetterActivity)
         setupAttachmentFullscreen(insetterActivity)
+        setupScrollDown()
         setupRecyclerView()
 
         viewModel.screenInit()
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        handlePushNotification()
+    }
+
+    private fun handlePushNotification() {
+        val chatId = activity?.intent?.extras?.getString("chat_id")?.toLongOrNull() ?: activity?.intent?.extras?.getLong("chat_id")
+
+        chatId?.let { _ ->
+            lifecycleScope.launch(viewModel.mainImmediate) {
+                viewModel.chatNavigator.popBackStack()
+            }
+        }
     }
 
     override fun onKeyboardToggle() {
@@ -458,8 +484,8 @@ abstract class ChatFragment<
             editTextChatFooter.addTextChangedListener { editable ->
                 //Do not toggle microphone and send icon if on attachment mode
                 if (viewModel.getFooterViewStateFlow().value !is FooterViewState.Attachment) {
-                    textViewChatFooterSend.goneIfTrue(editable.isNullOrEmpty())
-                    imageViewChatFooterMicrophone.goneIfFalse(editable.isNullOrEmpty())
+                    textViewChatFooterSend.goneIfTrue(editable.isNullOrEmpty() && !viewModel.isThreadChat())
+                    imageViewChatFooterMicrophone.goneIfFalse(editable.isNullOrEmpty() && !viewModel.isThreadChat())
                 }
             }
         }
@@ -487,7 +513,6 @@ abstract class ChatFragment<
     }
 
     open fun setupMoreOptionsMenu() {
-
         bottomMenuMore.newBuilder(moreMenuBinding, viewLifecycleOwner)
             .setHeaderText(R.string.bottom_menu_more_header_text)
             .setOptions(
@@ -619,28 +644,16 @@ abstract class ChatFragment<
             root.layoutParams.height = root.layoutParams.height + insetterActivity.statusBarInsetHeight.top
             root.requestLayout()
 
-            editTextChatSearch.addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-
-                override fun afterTextChanged(s: Editable?) {
-                    lifecycleScope.launch(viewModel.mainImmediate) {
-                        viewModel.searchMessages(s.toString())
-                    }
-                }
-            })
-
             textViewChatSearchDone.setOnClickListener {
-                editTextChatSearch.setText("")
+                viewModel.cancelSearch()
+            }
 
-                viewModel.messagesSearchViewStateContainer.updateViewState(
-                    MessagesSearchViewState.Idle
-                )
-
-//                forceScrollToBottom()?
+            buttonChatSearchClear.setOnClickListener {
+                viewModel.clearSearch()
             }
         }
+
+
     }
 
     private fun setupSelectedMessage() {
@@ -805,6 +818,12 @@ abstract class ChatFragment<
                                 is MenuItemState.Flag -> {
                                     viewModel.flagMessage(message)
                                 }
+                                is MenuItemState.PinMessage -> {
+                                    viewModel.pinMessage(message)
+                                }
+                                is MenuItemState.UnpinMessage -> {
+                                    viewModel.unPinMessage(message)
+                                }
                             }
                         }
                     }
@@ -815,19 +834,28 @@ abstract class ChatFragment<
         }
     }
 
+    private fun setupScrollDown(){
+        scrollDownButtonBinding.root.setOnClickListener {
+            forceScrollToBottom()
+        }
+    }
+
     private fun setupRecyclerView() {
         val linearLayoutManager = LinearLayoutManager(binding.root.context)
         val messageListAdapter = MessageListAdapter(
             recyclerView,
             headerBinding,
+            pinHeaderBinding,
             linearLayoutManager,
             viewLifecycleOwner,
             onStopSupervisor,
             viewModel,
             imageLoader,
-            userColorsHelper
+            userColorsHelper,
+            isThreadChat = viewModel.isThreadChat()
         )
         val footerAdapter = MessageListFooterAdapter()
+
         recyclerView.apply {
             setHasFixedSize(false)
             layoutManager = linearLayoutManager
@@ -835,6 +863,22 @@ abstract class ChatFragment<
             itemAnimator = null
 
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                    super.onScrolled(recyclerView, dx, dy)
+
+                    if (viewModel.isThreadChat()) {
+                        val firstVisiblePosition = linearLayoutManager.findFirstVisibleItemPosition()
+
+                        if (firstVisiblePosition > 0) {
+                            viewModel.changeThreadHeaderState(true)
+                        }
+
+                        if (firstVisiblePosition == 0) {
+                            viewModel.changeThreadHeaderState(false)
+                        }
+                    }
+                }
+
                 override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                     super.onScrollStateChanged(recyclerView, newState)
 
@@ -842,6 +886,13 @@ abstract class ChatFragment<
                         lifecycleScope.launch(viewModel.mainImmediate) {
                             viewModel.readMessages()
                         }
+                    }
+
+                    if (recyclerView.canScrollVertically(1)) {
+                        viewModel.updateScrollDownButton(true)
+                    }
+                    else {
+                        viewModel.updateScrollDownButton(false)
                     }
                 }
             })
@@ -908,6 +959,23 @@ abstract class ChatFragment<
         super.subscribeToViewStateFlow()
 
         onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+            viewModel.shimmerViewState.collect { viewState ->
+                shimmerBinding.apply {
+                    when (viewState) {
+                        is ShimmerViewState.On -> {
+                            root.visible
+                            shimmer.startShimmer()
+                        }
+                        is ShimmerViewState.Off -> {
+                            root.gone
+                            shimmer.stopShimmer()
+                        }
+                    }
+                }
+            }
+        }
+
+        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
             viewModel.messageReplyViewStateContainer.collect { viewState ->
                 messageReplyLastViewState?.let {
                     if (it == viewState) {
@@ -961,8 +1029,9 @@ abstract class ChatFragment<
 
                         val message = viewState.message
 
-                        message.uuid?.value?.toReplyUUID().let { uuid ->
-                            sendMessageBuilder.setReplyUUID(uuid)
+                        message.uuid?.value?.let { uuid ->
+                            sendMessageBuilder.setReplyUUID(uuid.toReplyUUID())
+                            sendMessageBuilder.setThreadUUID(message.threadUUID ?: uuid.toThreadUUID())
 
                             replyingMessageBinding.apply {
 
@@ -1613,7 +1682,7 @@ abstract class ChatFragment<
             viewModel.messagesSearchViewStateContainer.collect { viewState ->
                 @Exhaustive
                 when (viewState) {
-                    is MessagesSearchViewState.Idle -> {
+                    is MessagesSearchViewState.Idle, is MessagesSearchViewState.Cancel -> {
                         headerBinding.root.visible
                         footerBinding.root.visible
 
@@ -1623,6 +1692,23 @@ abstract class ChatFragment<
                         (recyclerView.adapter as ConcatAdapter).adapters.firstOrNull()?.let { messagesListAdapter ->
                             (messagesListAdapter as MessageListAdapter<*>).resetHighlighted()
                         }
+
+                        searchHeaderBinding.apply {
+                            editTextChatSearch.removeTextChangedListener(searchTextListener)
+                            editTextChatSearch.setText("")
+                            buttonChatSearchClear.gone
+
+                            if (viewState is MessagesSearchViewState.Cancel) {
+                                hideKeyboardFrom(textViewChatSearchDone.context, textViewChatSearchDone )
+                                forceScrollToBottom()
+                            }
+                        }
+                    }
+                    is MessagesSearchViewState.Clear -> {
+                        searchHeaderBinding.apply {
+                            editTextChatSearch.setText("")
+                            buttonChatSearchClear.gone
+                        }
                     }
                     is MessagesSearchViewState.Loading -> {
                         headerBinding.root.gone
@@ -1630,6 +1716,8 @@ abstract class ChatFragment<
 
                         searchHeaderBinding.root.visible
                         searchFooterBinding.root.visible
+
+                        searchHeaderBinding.buttonChatSearchClear.goneIfFalse(viewState.clearButtonVisible)
 
                         searchFooterBinding.apply {
                             progressBarLoadingSearch.visible
@@ -1643,6 +1731,13 @@ abstract class ChatFragment<
 
                         searchHeaderBinding.root.visible
                         searchFooterBinding.root.visible
+
+                        searchHeaderBinding.apply {
+                            buttonChatSearchClear.goneIfFalse(viewState.clearButtonVisible)
+
+                            editTextChatSearch.removeTextChangedListener(searchTextListener)
+                            editTextChatSearch.addTextChangedListener(searchTextListener)
+                        }
 
                         searchFooterBinding.apply {
                             progressBarLoadingSearch.gone
@@ -1684,7 +1779,34 @@ abstract class ChatFragment<
                 }
             }
         }
+        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+            viewModel.scrollDownViewStateContainer.collect { viewState ->
+                @Exhaustive
+                when (viewState) {
+                    is ScrollDownViewState.On -> {
+                        scrollDownButtonBinding.root.visible
+                        scrollDownButtonBinding.textViewChatMessagesCount.goneIfFalse(!viewState.unseenMessagesCount.isNullOrEmpty())
+                        scrollDownButtonBinding.textViewChatMessagesCount.text = viewState.unseenMessagesCount
+                    }
+                    is ScrollDownViewState.Off -> {
+                        scrollDownButtonBinding.root.gone
+                    }
+                }
+            }
+        }
     }
+
+    var searchTextListener: TextWatcher = object : TextWatcher {
+        override fun beforeTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
+        override fun onTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
+        override fun afterTextChanged(editable: Editable) {
+            lifecycleScope.launch(viewModel.mainImmediate) {
+                viewModel.searchMessages(
+                    editable.toString().trim()
+                )
+            }
+        }
+     }
 
     private fun scrollToResult(
         messages: List<Message>,
@@ -1715,6 +1837,11 @@ abstract class ChatFragment<
                 }
             }
         }
+    }
+
+    fun hideKeyboardFrom(context: Context, view: View) {
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(view.windowToken, 0)
     }
 
     override fun onPause() {

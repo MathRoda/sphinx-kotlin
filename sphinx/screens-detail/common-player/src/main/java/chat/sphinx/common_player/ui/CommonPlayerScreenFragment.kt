@@ -1,27 +1,34 @@
 package chat.sphinx.common_player.ui
 
+import android.animation.Animator
 import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.os.Bundle
+import android.util.Log
 import android.view.ContextThemeWrapper
+import android.view.KeyEvent
 import android.view.MenuItem
 import android.view.View
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.PopupMenu
-import android.widget.SeekBar
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.webkit.WebChromeClient
+import android.widget.*
+import androidx.activity.OnBackPressedCallback
 import androidx.core.content.ContextCompat
-import androidx.fragment.app.Fragment
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
-import androidx.navigation.fragment.navArgs
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import app.cash.exhaustive.Exhaustive
 import by.kirich1409.viewbindingdelegate.viewBinding
-import chat.sphinx.common_player.BuildConfig
 import chat.sphinx.common_player.R
 import chat.sphinx.common_player.adapter.RecommendedItemsAdapter
 import chat.sphinx.common_player.adapter.RecommendedItemsFooterAdapter
@@ -29,18 +36,21 @@ import chat.sphinx.common_player.databinding.FragmentCommonPlayerScreenBinding
 import chat.sphinx.common_player.viewstate.BoostAnimationViewState
 import chat.sphinx.common_player.viewstate.PlayerViewState
 import chat.sphinx.common_player.viewstate.RecommendationsPodcastPlayerViewState
+import chat.sphinx.common_player.viewstate.RecommendedFeedItemDetailsViewState
 import chat.sphinx.concept_connectivity_helper.ConnectivityHelper
 import chat.sphinx.concept_image_loader.ImageLoader
 import chat.sphinx.concept_image_loader.ImageLoaderOptions
+import chat.sphinx.concept_image_loader.Transformation
 import chat.sphinx.insetter_activity.InsetterActivity
+import chat.sphinx.insetter_activity.addNavigationBarPadding
+import chat.sphinx.resources.inputMethodManager
+import chat.sphinx.wrapper_common.PhotoUrl
 import chat.sphinx.wrapper_common.lightning.Sat
 import chat.sphinx.wrapper_common.lightning.asFormattedString
+import chat.sphinx.wrapper_common.lightning.toSat
 import chat.sphinx.wrapper_common.util.getHHMMSSString
 import chat.sphinx.wrapper_podcast.Podcast
 import chat.sphinx.wrapper_podcast.PodcastEpisode
-import com.google.android.youtube.player.YouTubeCommonPlayerSupportFragmentXKt
-import com.google.android.youtube.player.YouTubeInitializationResult
-import com.google.android.youtube.player.YouTubePlayer
 import dagger.hilt.android.AndroidEntryPoint
 import io.matthewnelson.android_feature_screens.ui.sideeffect.SideEffectFragment
 import io.matthewnelson.android_feature_screens.util.gone
@@ -70,20 +80,24 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
     @Suppress("ProtectedInFinal")
     protected lateinit var connectivityHelper: ConnectivityHelper
 
-    private val args: CommonPlayerScreenFragmentArgs by navArgs()
-
     override val binding: FragmentCommonPlayerScreenBinding by viewBinding(
         FragmentCommonPlayerScreenBinding::bind
     )
     override val viewModel: CommonPlayerScreenViewModel by viewModels()
 
-    private var youtubePlayer: YouTubePlayer? = null
+    companion object {
+        const val YOUTUBE_URL = "https://www.youtube.com"
+        const val MIME_TYPE_HTML = "text/html"
+        const val ENCODING_UTF = "UTF-8"
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         val a: Activity? = activity
         a?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+        BackPressHandler(viewLifecycleOwner, requireActivity())
 
         binding.apply {
 
@@ -99,16 +113,95 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
             }
         }
 
+        setupBoost()
         setupItems()
+        setupFeedItemDetails()
+        setupFragmentLayout()
+        setupYoutubePlayerIframe()
+    }
+
+    private fun setupFragmentLayout() {
+        (requireActivity() as InsetterActivity)
+            .addNavigationBarPadding(binding.includeLayoutFeedItem.includeLayoutFeedItemDetails.constraintLayoutFeedItem)
+    }
+
+    private inner class BackPressHandler(
+        owner: LifecycleOwner,
+        activity: FragmentActivity,
+    ): OnBackPressedCallback(true) {
+
+        init {
+            activity.apply {
+                onBackPressedDispatcher.addCallback(
+                    owner,
+                    this@BackPressHandler,
+                )
+            }
+        }
+
+        override fun handleOnBackPressed() {
+            if (viewModel.recommendedFeedItemDetailsViewState.value is RecommendedFeedItemDetailsViewState.Open) {
+                viewModel.recommendedFeedItemDetailsViewState.updateViewState(RecommendedFeedItemDetailsViewState.Closed)
+            } else {
+                lifecycleScope.launch(viewModel.mainImmediate) {
+                    viewModel.navigator.closeDetailScreen()
+                }
+            }
+        }
+    }
+
+    private fun setupBoost() {
+        binding.apply {
+            includeLayoutBoostFireworks.apply {
+                lottieAnimationView.addAnimatorListener(object : Animator.AnimatorListener {
+                    override fun onAnimationEnd(animation: Animator) {
+                        root.gone
+                    }
+
+                    override fun onAnimationRepeat(animation: Animator) {}
+
+                    override fun onAnimationCancel(animation: Animator) {}
+
+                    override fun onAnimationStart(animation: Animator) {}
+                })
+            }
+
+            includeLayoutPlayerDescriptionAndControls.includeLayoutEpisodePlaybackControls.includeLayoutCustomBoost.apply {
+                removeFocusOnEnter(editTextCustomBoost)
+            }
+        }
+    }
+
+    private fun removeFocusOnEnter(editText: EditText?) {
+        editText?.setOnEditorActionListener(object:
+            TextView.OnEditorActionListener {
+            override fun onEditorAction(v: TextView, actionId: Int, event: KeyEvent?): Boolean {
+                if (actionId == EditorInfo.IME_ACTION_DONE || event?.keyCode == KeyEvent.KEYCODE_ENTER) {
+                    editText.let { nnEditText ->
+                        binding.root.context.inputMethodManager?.let { imm ->
+                            if (imm.isActive(nnEditText)) {
+                                imm.hideSoftInputFromWindow(nnEditText.windowToken, 0)
+                                nnEditText.clearFocus()
+                            }
+                        }
+                    }
+                    return true
+                }
+                return false
+            }
+        })
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+
         viewModel.trackPodcastConsumed()
         viewModel.createHistoryItem()
         viewModel.trackVideoConsumed()
+
         val a: Activity? = activity
         a?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+
     }
 
     private fun setupItems() {
@@ -128,6 +221,30 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
             layoutManager = linearLayoutManager
             adapter = ConcatAdapter(recommendedItemsAdapter, recommendedListFooterAdapter)
             itemAnimator = null
+        }
+    }
+
+    private fun setupFeedItemDetails() {
+        binding.includeLayoutFeedItem.includeLayoutFeedItemDetails.apply {
+            textViewClose.setOnClickListener {
+                viewModel.recommendedFeedItemDetailsViewState.updateViewState(
+                    RecommendedFeedItemDetailsViewState.Closed
+                )
+            }
+            layoutConstraintCopyLinkRow.setOnClickListener {
+                (viewModel.recommendedFeedItemDetailsViewState.value as? RecommendedFeedItemDetailsViewState.Open)?.let { viewState ->
+                    viewState.feedItemDetail?.link?.let { link ->
+                        viewModel.copyCodeToClipboard(link)
+                    }
+                }
+            }
+            layoutConstraintShareRow.setOnClickListener {
+                (viewModel.recommendedFeedItemDetailsViewState.value as? RecommendedFeedItemDetailsViewState.Open)?.let { viewState ->
+                    viewState.feedItemDetail?.link?.let { link ->
+                        viewModel.share(link, binding.root.context)
+                    }
+                }
+            }
         }
     }
 
@@ -169,7 +286,7 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
                 }
 
                 textViewReplay15Button.setOnClickListener {
-                    viewModel.seekTo(podcast.currentTime - 15000)
+                    viewModel.seekTo(podcast.timeMilliSeconds - 15000L)
                     updateViewAfterSeek(podcast)
                 }
 
@@ -179,12 +296,12 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
                     if (currentEpisode.playing) {
                         viewModel.pauseEpisode(currentEpisode)
                     } else {
-                        viewModel.playEpisode(currentEpisode, podcast.currentTime)
+                        viewModel.playEpisode(currentEpisode, podcast.timeMilliSeconds)
                     }
                 }
 
                 textViewForward30Button.setOnClickListener {
-                    viewModel.seekTo(podcast.currentTime + 30000)
+                    viewModel.seekTo(podcast.timeMilliSeconds + 30000L)
                     updateViewAfterSeek(podcast)
                 }
             }
@@ -204,7 +321,6 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
             }
 
             is RecommendationsPodcastPlayerViewState.PodcastViewState.PodcastLoaded -> {
-                toggleLoadingWheel(true)
                 showPodcastInfo(viewState.podcast)
             }
 
@@ -252,9 +368,29 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
                 textViewPlaybackSpeedButton.text = "${podcast.getSpeedString()}"
 
                 includeLayoutCustomBoost.apply customBoost@ {
-                    this@customBoost.layoutConstraintBoostButtonContainer.alpha = if (podcast.hasDestinations) 1.0f else 0.3f
-                    this@customBoost.imageViewFeedBoostButton.isEnabled = podcast.hasDestinations
-                    this@customBoost.editTextCustomBoost.isEnabled = podcast.hasDestinations
+                    this@customBoost.imageViewFeedBoostButton.setOnClickListener {
+                        val amount = editTextCustomBoost.text.toString()
+                            .replace(" ", "")
+                            .toLongOrNull()?.toSat() ?: Sat(0)
+
+                        viewModel.sendPodcastBoost(
+                            amount,
+                            fireworksCallback = {
+                                onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+                                    setupBoostAnimation(null, amount)
+
+                                    includeLayoutBoostFireworks.apply fireworks@ {
+                                        this@fireworks.root.visible
+                                        this@fireworks.lottieAnimationView.playAnimation()
+                                    }
+                                }
+                            }
+                        )
+                    }
+
+                    this@customBoost.layoutConstraintBoostButtonContainer.alpha = if (currentEpisode.isBoostAllowed) 1.0f else 0.3f
+                    this@customBoost.imageViewFeedBoostButton.isEnabled = currentEpisode.isBoostAllowed
+                    this@customBoost.editTextCustomBoost.isEnabled = currentEpisode.isBoostAllowed
                 }
             }
 
@@ -267,7 +403,8 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
         }
     }
 
-    private fun setupBoostAnimation(
+    private suspend fun setupBoostAnimation(
+        photoUrl: PhotoUrl?,
         amount: Sat?
     ) {
 
@@ -276,6 +413,21 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
                 editTextCustomBoost.setText(
                     (amount ?: Sat(100)).asFormattedString()
                 )
+            }
+
+            includeLayoutBoostFireworks.apply {
+                photoUrl?.let { photoUrl ->
+                    imageLoader.load(
+                        imageViewProfilePicture,
+                        photoUrl.value,
+                        ImageLoaderOptions.Builder()
+                            .placeholderResId(R.drawable.ic_podcast_placeholder)
+                            .transformation(Transformation.CircleCrop)
+                            .build()
+                    )
+                }
+
+                textViewSatsAmount.text = amount?.asFormattedString()
             }
         }
     }
@@ -341,7 +493,7 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
         val duration = withContext(viewModel.io) {
             podcast.getCurrentEpisodeDuration(viewModel::retrieveEpisodeDuration)
         }
-        val seekTime = (duration * (progress.toDouble() / 100.toDouble())).toInt()
+        val seekTime = (duration * (progress.toDouble() / 100.toDouble())).toLong()
         viewModel.seekTo(seekTime)
     }
 
@@ -352,9 +504,9 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
     }
 
     private suspend fun setTimeLabelsAndProgressBar(podcast: Podcast) {
-        podcast.setInitialEpisodeDuration(args.argEpisodeDuration)
+        val currentTime = podcast.timeMilliSeconds
 
-        val currentTime = podcast.currentTime.toLong()
+        toggleLoadingWheel(podcast.shouldLoadDuration)
 
         val duration = withContext(viewModel.io) {
             podcast.getCurrentEpisodeDuration(viewModel::retrieveEpisodeDuration)
@@ -470,12 +622,40 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
 
                     is BoostAnimationViewState.BoosAnimationInfo -> {
                         setupBoostAnimation(
+                            viewState.photoUrl,
                             viewState.amount
                         )
                     }
                 }
             }
         }
+
+        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+            viewModel.recommendedFeedItemDetailsViewState.collect { viewState ->
+
+                binding.includeRecommendedItemsList.recyclerViewList.adapter?.notifyDataSetChanged()
+
+                binding.includeLayoutFeedItem.apply {
+                    when (viewState) {
+                        is RecommendedFeedItemDetailsViewState.Open -> {
+                            includeLayoutFeedItemDetails.apply {
+                                feedItemDetailsCommonInfoBinding(viewState)
+                                layoutConstraintDownloadRow.gone
+                                layoutConstraintCheckMarkRow.gone
+                                circleSplitTwo.gone
+                                textViewEpisodeDuration.gone
+                            }
+
+                        }
+                        else -> {}
+                    }
+
+                    root.setTransitionDuration(300)
+                    viewState.transitionToEndSet(root)
+                }
+            }
+        }
+
 
         onStopSupervisor.scope.launch(viewModel.mainImmediate) {
             viewModel.playerViewStateContainer.collect { viewState ->
@@ -485,10 +665,9 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
                         is PlayerViewState.Idle -> {}
 
                         is PlayerViewState.PodcastEpisodeSelected -> {
-                            youtubePlayer?.pause()
 
                             includeLayoutPlayersContainer.apply {
-                                frameLayoutYoutubePlayer.gone
+                                webViewYoutubePlayer.gone
                                 imageViewPodcastImage.visible
                                 layoutConstraintSliderContainer.visible
                             }
@@ -504,7 +683,7 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
 
                         is PlayerViewState.YouTubeVideoSelected -> {
                             includeLayoutPlayersContainer.apply {
-                                frameLayoutYoutubePlayer.visible
+                                webViewYoutubePlayer.visible
                                 imageViewPodcastImage.gone
                                 layoutConstraintSliderContainer.gone
                             }
@@ -517,20 +696,11 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
                                 imageViewPlayPauseButton.invisible
                             }
 
-                            didSeekToStartTime = false
+                            cueYoutubeVideo(viewState.episode.enclosureUrl.value.youTubeVideoId())
 
-                            if (youtubePlayer != null) {
-                                youtubePlayer?.cueVideo(viewState.episode.enclosureUrl.value.youTubeVideoId())
-
-                                viewModel.createHistoryItem()
-                                viewModel.trackVideoConsumed()
-                                viewModel.createVideoRecordConsumed(viewState.episode.id)
-                            } else {
-                                setupYoutubePlayer(
-                                    viewState.episode.enclosureUrl.value.youTubeVideoId(),
-                                )
-                                viewModel.createVideoRecordConsumed(viewState.episode.id)
-                            }
+                            viewModel.createHistoryItem()
+                            viewModel.trackVideoConsumed()
+                            viewModel.createVideoRecordConsumed(viewState.episode.id)
                         }
                     }
                 }
@@ -538,78 +708,145 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
         }
     }
 
-    private var didSeekToStartTime = false
-    private fun seekToStartTime() {
-        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
-            (viewModel.playerViewStateContainer.value as? PlayerViewState.YouTubeVideoSelected)?.let { viewState ->
-                viewState.episode.clipStartTime?.let {
-                    if (!didSeekToStartTime) {
-                        youtubePlayer?.seekToMillis(it)
-                    }
-                    didSeekToStartTime = true
+    private fun feedItemDetailsCommonInfoBinding(viewState: RecommendedFeedItemDetailsViewState.Open) {
+        binding.includeLayoutFeedItem.includeLayoutFeedItemDetails.apply {
+            textViewMainEpisodeTitle.text = viewState.feedItemDetail?.header
+            imageViewItemRowEpisodeType.setImageDrawable(ContextCompat.getDrawable(root.context, viewState.feedItemDetail?.episodeTypeImage ?: R.drawable.ic_podcast_type))
+            textViewEpisodeType.text = viewState.feedItemDetail?.episodeTypeText
+            textViewEpisodeDate.text = viewState.feedItemDetail?.episodeDate
+            textViewEpisodeDuration.text = viewState.feedItemDetail?.episodeDuration
+            textViewPodcastName.text = viewState.feedItemDetail?.podcastName
+
+            onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+                viewState.feedItemDetail?.image?.let {
+                    imageLoader.load(
+                        imageViewEpisodeDetailImage,
+                        it,
+                        ImageLoaderOptions.Builder()
+                            .placeholderResId(R.drawable.ic_podcast_placeholder)
+                            .build()
+                    )
                 }
             }
         }
     }
 
-    private fun setupYoutubePlayer(
-        videoId: String
-    ) {
-        val youtubePlayerFragment = YouTubeCommonPlayerSupportFragmentXKt()
+    private fun setupYoutubePlayerIframe() {
+        var isSeeking = false
 
-        childFragmentManager.beginTransaction()
-            .replace(binding.includeLayoutPlayersContainer.frameLayoutYoutubePlayer.id, youtubePlayerFragment as Fragment)
-            .commit()
+        binding.includeLayoutPlayersContainer.apply {
+            webViewYoutubePlayer.settings.javaScriptEnabled = true
 
-        youtubePlayerFragment.initialize(
-            BuildConfig.YOUTUBE_API_KEY,
-            object : YouTubePlayer.OnInitializedListener {
-                override fun onInitializationSuccess(
-                    p0: YouTubePlayer.Provider?,
-                    p1: YouTubePlayer?,
-                    p2: Boolean
-                ) {
-                    p1?.let {
-                        youtubePlayer = it
-                    }
-                    p1?.cueVideo(videoId)
-                    p1?.setPlaybackEventListener(playbackEventListener)
-                }
+            webViewYoutubePlayer.webChromeClient = object : WebChromeClient() {
 
-                override fun onInitializationFailure(
-                    p0: YouTubePlayer.Provider?,
-                    p1: YouTubeInitializationResult?
-                ) {}
-                private val playbackEventListener = object : YouTubePlayer.PlaybackEventListener {
+                private var customView: View? = null
+                private var customViewCallback: CustomViewCallback? = null
+                private var originalOrientation: Int = 0
 
-                    override fun onSeekTo(p0: Int) {
-                        viewModel.setNewHistoryItem(p0.toLong())
+                override fun onShowCustomView(view: View?, callback: CustomViewCallback) {
+                    if (customView != null) {
+                        onHideCustomView()
+                        return
                     }
 
-                    override fun onBuffering(p0: Boolean) {}
+                    customView = view
+                    originalOrientation = activity?.requestedOrientation ?: Configuration.ORIENTATION_UNDEFINED
 
-                    override fun onPlaying() {
-                        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
-                            viewModel.playingVideoUpdate()
-                            binding.includeRecommendedItemsList.recyclerViewList.adapter?.notifyDataSetChanged()
-                        }
+                    customViewCallback = callback
 
-                        seekToStartTime()
-                        viewModel.startTimer()
-                    }
-                    override fun onStopped() {
-                        viewModel.stopTimer()
-                    }
+                    val decor = activity?.window?.decorView as FrameLayout
+                    decor.addView(customView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-                    override fun onPaused() {
-                        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
-                            viewModel.playingVideoDidPause()
-                            binding.includeRecommendedItemsList.recyclerViewList.adapter?.notifyDataSetChanged()
-                        }
-                        viewModel.stopTimer()
+                    ViewCompat.getWindowInsetsController(decor)?.let {
+                        it.hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+                        it.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                     }
                 }
-            })
+
+                override fun onHideCustomView() {
+                    val decor = activity?.window?.decorView as FrameLayout
+                    decor.removeView(customView)
+                    customView = null
+
+                    ViewCompat.getWindowInsetsController(decor)?.show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+
+                    activity?.requestedOrientation = originalOrientation
+
+                    customViewCallback?.onCustomViewHidden()
+                    customViewCallback = null
+                }
+
+                override fun getDefaultVideoPoster(): Bitmap {
+                    return Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
+                }
+            }
+
+            val videoStateListener = object : VideoStateListener {
+
+                override fun onVideoSeek(time: Int) {
+                    isSeeking = true
+                    viewModel.setNewHistoryItem(time.toLong())
+
+                    Log.d("YouTubePlayer", "Youtube has seek $time")
+                }
+
+                override fun onVideoPlaying() {
+                    onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+                        viewModel.playingVideoUpdate()
+                        binding.includeRecommendedItemsList.recyclerViewList.adapter?.notifyDataSetChanged()
+                    }
+                    viewModel.startTimer()
+                    isSeeking = false
+
+                    Log.d("YouTubePlayer", "Youtube is playing")
+                }
+                override fun onVideoPaused() {
+                    onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+                        viewModel.playingVideoDidPause()
+                        binding.includeRecommendedItemsList.recyclerViewList.adapter?.notifyDataSetChanged()
+                    }
+                    viewModel.stopTimer()
+
+                    Log.d("YouTubePlayer", "Youtube is on pause")
+                }
+
+                override fun onVideoEnded() {
+                    viewModel.stopTimer()
+                    Log.d("YouTubePlayer", "Youtube video ended")
+                }
+
+                override fun onVideoReady() {}
+                override fun onVideoBuffering() {}
+                override fun onVideoUnstarted() {}
+                override fun onVideoCued() {}
+                override fun onVideoError(error: String) {}
+                override fun onPlaybackQualityChange(quality: String) {}
+                override fun onPlaybackRateChange(rate: String) {}
+            }
+
+            webViewYoutubePlayer.addJavascriptInterface(
+                YoutubePlayerJavaScriptInterface(videoStateListener),
+                "Android"
+            )
+        }
+    }
+
+    private fun cueYoutubeVideo(videoId: String) {
+        binding.includeLayoutPlayersContainer.apply {
+
+            val htmlContent = context?.assets?.open("youtube_iframe.html")?.bufferedReader()
+                .use { it?.readText() }
+            val formattedHtml = htmlContent?.replace("%%VIDEO_ID%%", videoId)
+            formattedHtml?.let { html ->
+                webViewYoutubePlayer.loadDataWithBaseURL(
+                    YOUTUBE_URL,
+                    html,
+                    MIME_TYPE_HTML,
+                    ENCODING_UTF,
+                    null
+                )
+            }
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -631,6 +868,7 @@ internal class CommonPlayerScreenFragment : SideEffectFragment<
     }
 
     override suspend fun onSideEffectCollect(sideEffect: CommonPlayerScreenSideEffect) {
+        sideEffect.execute(requireActivity())
     }
 }
 

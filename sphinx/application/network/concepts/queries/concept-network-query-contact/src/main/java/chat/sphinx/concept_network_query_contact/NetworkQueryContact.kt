@@ -25,6 +25,8 @@ abstract class NetworkQueryContact {
 
     abstract fun getLatestContacts(
         date: DateTime?,
+        limit: Int,
+        offset: Int,
         relayData: Triple<Pair<AuthorizationToken, TransportToken?>, RequestSignature?, RelayUrl>? = null
     ): Flow<LoadResponse<GetLatestContactsResponse, ResponseError>>
 
@@ -94,6 +96,14 @@ abstract class NetworkQueryContact {
         welcomeMessage: String,
         relayData: Triple<Pair<AuthorizationToken, TransportToken?>, RequestSignature?, RelayUrl>? = null
     ): Flow<LoadResponse<ContactDto, ResponseError>>
+
+    abstract fun hasAdmin(
+        url: RelayUrl
+    ): Flow<LoadResponse<Any, ResponseError>>
+
+    abstract fun deleteAccount(
+        relayData: Triple<Pair<AuthorizationToken, TransportToken?>, RequestSignature?, RelayUrl>? = null
+    ): Flow<LoadResponse<Any, ResponseError>>
 
     //    app.post('/contacts/:id/keys', contacts.exchangeKeys)
     //    app.post('/contacts', contacts.createContact)

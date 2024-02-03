@@ -10,6 +10,7 @@ import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
+import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.viewModels
@@ -40,7 +41,6 @@ import io.matthewnelson.android_feature_screens.ui.sideeffect.SideEffectFragment
 import io.matthewnelson.android_feature_screens.util.gone
 import io.matthewnelson.android_feature_screens.util.visible
 import io.matthewnelson.android_feature_viewmodel.submitSideEffect
-import io.matthewnelson.android_feature_viewmodel.updateViewState
 import io.matthewnelson.concept_views.viewstate.collect
 import io.matthewnelson.concept_views.viewstate.value
 import kotlinx.coroutines.flow.collect
@@ -132,6 +132,9 @@ internal class ProfileFragment: SideEffectFragment<
                 .addNavigationBarPadding(
                     includeLayoutMenuBottomProfilePic.includeLayoutMenuBottomOptions.root
                 )
+                .addNavigationBarPadding(
+                    includeLayoutMenuBottomSigner.includeLayoutMenuBottomOptions.root
+                )
 
             includeProfileNamePictureHolder.imageViewProfilePicture.setOnClickListener {
                 viewModel.pictureMenuHandler.viewStateContainer.updateViewState(MenuBottomViewState.Open)
@@ -207,7 +210,7 @@ internal class ProfileFragment: SideEffectFragment<
                                 val key = owner.routeHint?.let { routeHint ->
                                     "${pubKey.value}:${routeHint.value}"
                                 } ?: pubKey.value
-                                
+
                                 profileNavigator.toQRCodeDetail(key, getString(R.string.profile_qr_code_header_name))
                             }
                         }
@@ -263,7 +266,6 @@ internal class ProfileFragment: SideEffectFragment<
                         }
 
                         override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                            // only persist when tracking is stopped (key up)
                             viewModel.persistPINTimeout()
                         }
                     }
@@ -273,15 +275,45 @@ internal class ProfileFragment: SideEffectFragment<
                     viewModel.setGithubPAT()
                 }
 
-                buttonProfileAdvancedContainerSigningDevice.setOnClickListener {
-                    viewModel.setupSigningDevice()
-                }
-
                 buttonProfileAdvancedContainerChangePin.setOnClickListener {
                     viewModel.resetPIN()
                 }
 
+                buttonProfileDeleteAccount.setOnClickListener {
+                    viewModel.deleteAccount()
+                }
+
+                includeProfileBasicContainerHolder.layoutConstraintProfileBasicContainerManageStorage.setOnClickListener {
+                    lifecycleScope.launch(viewModel.mainImmediate) {
+                        profileNavigator.toManageStorageDetail()
+                    }
+                }
             }
+        }
+    }
+
+    private fun setProgressStorageBar(viewState: StorageBarViewState.StorageData) {
+        binding.includeProfileBasicContainerHolder.includeProfileManageStorageBar.apply {
+            viewState.storagePercentage.apply {
+                setViewSectionPercentage(storageProgressImages, image)
+                setViewSectionPercentage(storageProgressAudio, audio)
+                setViewSectionPercentage(storageProgressVideo, video)
+                setViewSectionPercentage(storageProgressFiles, files)
+                setViewSectionPercentage(storageProgressFree, freeStorage)
+            }
+        }
+    }
+
+    private fun setViewSectionPercentage(view: View, percentage: Float) {
+        if (percentage == 0F) {
+            view.gone
+        }
+        else {
+            val constraintLayout = binding.includeProfileBasicContainerHolder.includeProfileManageStorageBar.progressContainer
+            val constraintSet = ConstraintSet()
+            constraintSet.clone(constraintLayout)
+            constraintSet.constrainPercentWidth(view.id, percentage)
+            constraintSet.applyTo(constraintLayout)
         }
     }
 
@@ -429,7 +461,6 @@ internal class ProfileFragment: SideEffectFragment<
                 }
             } catch (e: NumberFormatException) {}
         }
-
     }
 
     override suspend fun onViewStateFlowCollect(viewState: ProfileViewState) {
@@ -444,8 +475,6 @@ internal class ProfileFragment: SideEffectFragment<
                     }
                     includeProfileBasicContainerHolder.root.gone
                     includeProfileAdvancedContainerHolder.root.visible
-
-                    includeProfileAdvancedContainerHolder.buttonProfileAdvancedContainerSigningDevice.text = viewState.deviceSetupButtonTitle
                 }
                 is ProfileViewState.Basic -> {
                     includeProfileTabsHolder.apply {
@@ -492,6 +521,26 @@ internal class ProfileFragment: SideEffectFragment<
                             viewModel.submitSideEffect(
                                 ProfileSideEffect.ImageUpdatedSuccessfully
                             )
+                        }
+                    }
+                }
+            }
+        }
+        onStopSupervisor.scope.launch(viewModel.mainImmediate) {
+            binding.includeProfileBasicContainerHolder.apply {
+                viewModel.storageBarViewStateContainer.collect { viewState ->
+                    when (viewState) {
+                        is StorageBarViewState.Loading -> {
+                            constraintLayoutStorageLoadingContainer.visible
+                            constraintLayoutStorageNumberContainer.gone
+                        }
+                        is StorageBarViewState.StorageData -> {
+                            constraintLayoutStorageLoadingContainer.gone
+                            constraintLayoutStorageNumberContainer.visible
+                            textViewProfileStorageNumber.text = viewState.used.trim()
+                            textViewProfileTotalStorageNumber.text = String.format(getString(R.string.manage_storage_total_storage), viewState.total)
+
+                            setProgressStorageBar(viewState)
                         }
                     }
                 }

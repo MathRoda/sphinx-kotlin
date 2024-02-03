@@ -151,3 +151,24 @@ internal class PersonAdapter: ColumnAdapter<MessagePerson, String> {
         return value.value
     }
 }
+
+internal class ThreadUUIDAdapter: ColumnAdapter<ThreadUUID, String> {
+    override fun decode(databaseValue: String): ThreadUUID {
+        return ThreadUUID(databaseValue)
+    }
+
+    override fun encode(value: ThreadUUID): String {
+        return value.value
+    }
+}
+
+internal class ErrorMessageAdapter: ColumnAdapter<ErrorMessage, String> {
+    override fun decode(databaseValue: String): ErrorMessage {
+        return ErrorMessage(databaseValue)
+    }
+
+    override fun encode(value: ErrorMessage): String {
+        return value.value
+    }
+}
+

@@ -14,7 +14,7 @@ android {
     defaultConfig {
         applicationId "chat.sphinx"
         minSdkVersion versions.minSdk
-        targetSdkVersion versions.compileSdk
+        targetSdkVersion versions.targetSdk
         versionCode VERSION_CODE.toInteger()
         versionName VERSION_NAME
 
@@ -53,8 +53,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     // Needed for Tor
@@ -66,6 +66,7 @@ android {
             universalApk true
         }
     }
+    namespace 'chat.sphinx'
 }
 
 dependencies {
@@ -108,6 +109,8 @@ dependencies {
     implementation project(path: ':sphinx:application:network:features:queries:feature-network-query-redeem-badge-token')
     implementation project(path: ':sphinx:application:network:features:queries:feature-network-query-transport-key')
     implementation project(path: ':sphinx:application:network:features:queries:feature-network-query-crypter')
+    implementation project(path: ':sphinx:application:network:features:queries:feature-network-query-discover-tribes')
+    implementation project(path: ':sphinx:application:network:features:queries:feature-network-query-feed-status')
     implementation project(path: ':sphinx:application:network:features:feature-network-relay-call')
     implementation project(path: ':sphinx:application:network:features:feature-socket-io')
     implementation project(path: ':sphinx:application:network:features:tor:feature-network-tor')

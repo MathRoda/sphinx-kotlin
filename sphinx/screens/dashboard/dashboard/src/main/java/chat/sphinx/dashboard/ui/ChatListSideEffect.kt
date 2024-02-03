@@ -6,6 +6,7 @@ import chat.sphinx.dashboard.R
 import chat.sphinx.resources.SphinxToastUtils
 import io.matthewnelson.android_feature_toast_utils.show
 import io.matthewnelson.concept_views.sideeffect.SideEffect
+import java.util.Locale
 
 sealed class ChatListSideEffect: SideEffect<Context>() {
 
@@ -68,6 +69,15 @@ sealed class ChatListSideEffect: SideEffect<Context>() {
                 callback()
             }
             builder.show()
+        }
+    }
+
+    @Suppress("NOTHING_TO_INLINE")
+    inline fun String.toCapitalized(): String {
+        return this.replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase(
+                Locale.ROOT
+            ) else it.toString()
         }
     }
 

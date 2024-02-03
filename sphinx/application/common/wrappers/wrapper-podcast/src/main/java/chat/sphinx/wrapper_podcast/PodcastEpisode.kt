@@ -31,7 +31,8 @@ data class PodcastEpisode(
     val clipStartTime: Int? = null,
     val clipEndTime: Int? = null,
     val topics: List<String> = listOf(),
-    val people: List<String> = listOf()
+    val people: List<String> = listOf(),
+    val recommendationPubKey: String? = null
 ): DownloadableFeedItem {
 
     companion object {
@@ -53,6 +54,62 @@ data class PodcastEpisode(
         result = _31 * result + id.hashCode()
         return result
     }
+
+    var contentEpisodeStatus: ContentEpisodeStatus? = null
+
+    fun getUpdatedContentEpisodeStatus(): ContentEpisodeStatus {
+        contentEpisodeStatus?.let {
+            return it
+        }
+        contentEpisodeStatus = ContentEpisodeStatus(
+            podcastId,
+            this.id,
+            FeedItemDuration(0),
+            FeedItemDuration((clipStartTime?.toLong() ?: 0) / 1000),
+            null
+        )
+        return contentEpisodeStatus!!
+    }
+
+    var durationMilliseconds: Long? = null
+        get() {
+            getUpdatedContentEpisodeStatus()?.duration?.value?.let {
+                if (it > 0) {
+                    return it * 1000
+                }
+            }
+            return null
+        }
+
+    var currentTimeSeconds: Long = 0
+        get() {
+            return (currentTimeMilliseconds ?: 0) / 1000
+        }
+
+    var currentTimeMilliseconds: Long? = null
+        get() {
+            getUpdatedContentEpisodeStatus()?.currentTime?.value?.let {
+                if (it > 0) {
+                    return it * 1000
+                }
+            }
+            return null
+        }
+
+    var played: Boolean
+        get() {
+            getUpdatedContentEpisodeStatus()?.played?.let {
+                return it
+            }
+            return false
+        }
+        set(value) {
+            value?.let {
+                contentEpisodeStatus = getUpdatedContentEpisodeStatus()?.copy(
+                    played = it
+                )
+            }
+        }
 
     var titleToShow: String = ""
         get() = title.value.trim()
@@ -119,4 +176,19 @@ data class PodcastEpisode(
         get() {
             return date?.time ?: 0
         }
+
+    var isBoostAllowed: Boolean = false
+        get() {
+            return recommendationPubKey?.toFeedDestinationAddress() != null
+        }
+}
+
+@Suppress("NOTHING_TO_INLINE")
+inline fun Int.toHrAndMin(): String {
+    val hours = this / 3600
+    val minutes = (this % 3600) / 60
+
+    return if (hours > 0) {
+        "$hours hr $minutes min"
+    } else "$minutes min"
 }

@@ -12,9 +12,7 @@ android {
     buildFeatures.viewBinding = true
     defaultConfig {
         minSdkVersion versions.minSdk
-        targetSdkVersion versions.compileSdk
-        versionCode VERSION_CODE.toInteger()
-        versionName VERSION_NAME
+        targetSdkVersion versions.targetSdk
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments disableAnalytics: 'true'
@@ -26,19 +24,20 @@ android {
             minifyEnabled false
         }
     }
+    namespace 'chat.sphinx.support_ticket'
 }
 
 dependencies {
     implementation fileTree(dir: "libs", include: ["*.jar"])
     // KotlinAndroid
     implementation project(path: ':android:features:android-feature-screens')
+    implementation project(path: ':sphinx:application:common:screen-detail-fragment')
     // Sphinx
     implementation project(path: ':sphinx:activity:insetter-activity')
     implementation project(path: ':sphinx:screens-detail:common:detail-resources')
     api project(path: ':sphinx:application:network:concepts:queries:concept-network-query-lightning')
     implementation project(path: ':sphinx:application:data:concepts:repositories:concept-repository-actions')
 
-    implementation deps.androidx.lifecycle.hilt
     implementation deps.google.hilt
     kapt kaptDeps.google.hilt
 }

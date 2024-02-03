@@ -13,9 +13,7 @@ android {
     buildFeatures.viewBinding = true
     defaultConfig {
         minSdkVersion versions.minSdk
-        targetSdkVersion versions.compileSdk
-        versionCode VERSION_CODE.toInteger()
-        versionName VERSION_NAME
+        targetSdkVersion versions.targetSdk
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments disableAnalytics: 'true'
@@ -27,6 +25,7 @@ android {
             minifyEnabled false
         }
     }
+    namespace 'chat.sphinx.onboard_connect'
 }
 
 dependencies {
@@ -34,14 +33,19 @@ dependencies {
     // KotlinAndroid
     implementation project(path: ':android:features:android-feature-screens')
 
-    implementation deps.androidx.lifecycle.hilt
     implementation deps.google.hilt
+    implementation deps.square.moshi
 
     // Sphinx
     implementation project(path: ':sphinx:activity:insetter-activity')
     implementation project(path: ':sphinx:screens-detail:scanner:scanner-view-model-coordinator')
+    implementation project(path: ':sphinx:activity:concepts:concept-signer-manager')
+    implementation project(path: ':sphinx:application:data:concepts:concept-wallet')
+    implementation project(path: ':sphinx:application:network:concepts:queries:concept-network-query-crypter')
     api project(path: ':sphinx:screens:onboard:onboard-common')
     api project(path: ':sphinx:screens:onboard:onboard-resources')
+    api project(path: ':sphinx:application:common:menus:menu-bottom-signer')
+    api project(path: ':sphinx:application:common:menus:menu-bottom-phone-signer-method')
 
     kapt kaptDeps.google.hilt
 

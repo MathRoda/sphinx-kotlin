@@ -1,5 +1,161 @@
 # ChangeLog
 
+# Version 1.0.0-beta14 (2024-01-05)
+- Improves push notification content
+- Fixes crash on Profile
+
+# Version 1.0.0-beta13 (2023-12-13)
+- Adds ability to delete Sphinx account
+
+# Version 1.0.0-beta12 (2023-12-13)
+- Improves push notifications handling
+- Enables Create Tribe for virtual nodes
+
+# Version 1.0.0-beta11 (2023-11-17)
+- Fixes crashes
+- Fixes Out of Memory issues
+
+# Version 1.0.0-beta10 (2023-11-03)
+- Fixes issue on invoice tag
+
+# Version 1.0.0-beta09 (2023-11-02)
+- Apply indexes to the database tables 
+
+# Version 1.0.0-beta08 (2023-10-20)
+App Update
+
+Build Configuration:
+
+- Gradle: 7.5
+- Java Version: 17
+- Kotlin Version: 1.6.21
+- CompileSdk: 33
+- Android Gradle Plugin: 7.4.2
+- Gradle JDK: openjdk Corretto 17.0.8.1
+
+App Libraries:
+- Coil
+- Insetter
+- Lifecycle
+- Hilt
+- Moshi
+- Navigation
+- Okhttp
+- SqlDelight
+
+# Version 1.0.0-beta06 (2023-10-12)
+- Adds fixes to the payment endpoint
+- Adds a progress bar to the contact list on the dashboard
+
+# Version 1.0.0-beta05 (2023-09-25)
+- Adds fixes on phone signer
+
+# Version 1.0.0-beta04 (2023-09-21)
+- Improves media support on threads
+- Adds support for signup with phone signer
+- Adds support for signup with signing hardware
+- Adds fixes and improvements
+
+# Version 1.0.0-beta03 (2023-08-21)
+- Upgrades target SDK
+
+# Version 1.0.0-beta02 (2023-08-17)
+- Adds support for media on threads
+
+# Version 1.0.0-beta01 (2023-08-14)
+- Fixes thread issues
+- Adds pagination on contacts/chats fetch
+
+# Version 1.0.0-beta00 (2023-07-30)
+- Adds support for threading
+
+# Version 1.0.0-alpha99 (2023-07-12)
+- Adds downloaded content section on feed
+- Improves chat messages search
+- Upgrades YouTube video player
+- Implements scroll to bottom on chat
+- Fixes bugs
+
+# Version 1.0.0-alpha98 (2023-06-26)
+- Adds storage management for audio and generic files
+
+# Version 1.0.0-alpha97 (2023-06-09)
+- Adds storage management
+
+# Version 1.0.0-alpha96 (2023-05-26)
+- Improves pin message feature
+
+# Version 1.0.0-alpha95 (2023-05-25)
+- Improves pin message feature
+- Fixes issue on Dashboard tabs selection
+
+# Version 1.0.0-alpha94 (2023-05-18)
+- Improves javascript bridge for tribe web apps
+- Adds support for tribe pinned message
+- Adds sats streaming while playing videos
+
+# Version 1.0.0-alpha93 (2023-05-12)
+- Adds javascript bridge for tribe web apps
+- Fixes issue on youtube player
+
+# Version 1.0.0-alpha92 (2023-05-04)
+- Improves payments error handling
+- Improves transactions list UI
+- Adds Philippine language
+- Adds Recently Played sections in feed
+
+# Version 1.0.0-alpha91 (2023-04-28)
+- Improves payments error handling
+- Fixes crashes
+- Improves Dashboard loading
+
+# Version 1.0.0-alpha90 (2023-04-14)
+- Fixes recommendations issues
+
+# Version 1.0.0-alpha89 (2023-04-13)
+- Adds sharing inside Sphinx
+
+# Version 1.0.0-alpha88 (2023-04-10)
+- Adds feed item description view
+
+# Version 1.0.0-alpha87 (2023-04-03)
+- Improves payment flow
+
+# Version 1.0.0-alpha86 (2023-03-29)
+- Adds recently played section on feed
+- Fixes issues on add contact view
+- Fixes playing animation sync issues
+
+# Version 1.0.0-alpha85 (2023-03-20)
+- Adds new episodes layout on player
+- Fixes issues on tribe badges feature
+
+# Version 1.0.0-alpha84 (2023-03-08)
+- Adds support for tribe badges
+
+# Version 1.0.0-alpha83 (2023-03-03)
+- General fixes and improvements
+
+# Version 1.0.0-alpha82 (2023-02-27)
+- Fixes Content Feed Status sync between devices
+
+# Version 1.0.0-alpha81 (2023-02-24)
+- Adds support for Stakwork authentication
+- Fixes issue on chat keyboard
+- Improves socket connection
+
+# Version 1.0.0-alpha80 (2023-02-21)
+- Adds support for swarm QR codes
+
+# Version 1.0.0-alpha79 (2023-02-17)
+- Improves media players
+- Adds Content Feed Status sync between devices
+
+# Version 1.0.0-alpha78 (2023-01-26)
+- Improves media players
+- Adds support for recommendations boost
+- Adds Tribes Discover section
+
 # Version 1.0.0-alpha77 (2022-12-27)
 - Improves actions tracking
 - Improves recommendations player

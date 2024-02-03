@@ -13,9 +13,7 @@ android {
     buildFeatures.viewBinding = true
     defaultConfig {
         minSdkVersion versions.minSdk
-        targetSdkVersion versions.compileSdk
-        versionCode VERSION_CODE.toInteger()
-        versionName VERSION_NAME
+        targetSdkVersion versions.targetSdk
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments disableAnalytics: 'true'
@@ -27,12 +25,14 @@ android {
             minifyEnabled false
         }
     }
+    namespace 'chat.sphinx.payment_common'
 }
 
 dependencies {
     implementation fileTree(dir: "libs", include: ["*.jar"])
     // KotlinAndroid
     implementation project(path: ':android:features:android-feature-screens')
+    api project(path: ':sphinx:application:common:screen-detail-fragment')
     // Sphinx
     api project(path: ':sphinx:activity:concepts:concept-user-colors-helper')
     api project(path: ':sphinx:screens-detail:common:detail-resources')
@@ -48,7 +48,6 @@ dependencies {
     api project(path: ':sphinx:application:common:wrappers:wrapper-contact')
     api project(path: ':sphinx:activity:insetter-activity')
 
-    implementation deps.androidx.lifecycle.hilt
     implementation deps.google.hilt
     kapt kaptDeps.google.hilt
 }

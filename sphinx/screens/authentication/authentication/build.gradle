@@ -13,9 +13,7 @@ android {
     buildFeatures.viewBinding = true
     defaultConfig {
         minSdkVersion versions.minSdk
-        targetSdkVersion versions.compileSdk
-        versionCode VERSION_CODE.toInteger()
-        versionName VERSION_NAME
+        targetSdkVersion versions.targetSdk
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments disableAnalytics: 'true'
@@ -27,6 +25,7 @@ android {
             minifyEnabled false
         }
     }
+    namespace 'chat.sphinx.authentication'
 }
 
 dependencies {
@@ -40,7 +39,6 @@ dependencies {
     implementation project(path: ':sphinx:screens:authentication:authentication-resources')
     implementation project(path: ':sphinx:activity:insetter-activity')
 
-    implementation deps.androidx.lifecycle.hilt
     implementation deps.google.hilt
     kapt kaptDeps.google.hilt
 

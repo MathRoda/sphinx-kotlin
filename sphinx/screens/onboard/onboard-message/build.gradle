@@ -13,9 +13,7 @@ android {
     buildFeatures.viewBinding = true
     defaultConfig {
         minSdkVersion versions.minSdk
-        targetSdkVersion versions.compileSdk
-        versionCode VERSION_CODE.toInteger()
-        versionName VERSION_NAME
+        targetSdkVersion versions.targetSdk
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments disableAnalytics: 'true'
@@ -27,6 +25,7 @@ android {
             minifyEnabled false
         }
     }
+    namespace 'chat.sphinx.onboard'
 }
 
 dependencies {
@@ -34,9 +33,10 @@ dependencies {
     // KotlinAndroid
     implementation project(path: ':android:features:android-feature-screens')
     implementation project(path: ':kotlin:concepts:authentication:concept-authentication')
+    implementation project(path: ':sphinx:application:data:concepts:concept-wallet')
+    implementation project(path: ':sphinx:activity:concepts:concept-signer-manager')
     implementation project(path: ':kotlin:encoders:base64')
 
-    implementation deps.androidx.lifecycle.hilt
     implementation deps.google.hilt
 
     // Sphinx

@@ -1,15 +1,11 @@
 package chat.sphinx.chat_common.ui.viewstate.messageholder
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
-import android.os.ParcelFileDescriptor.MODE_READ_ONLY
 import android.view.Gravity
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.annotation.ColorRes
 import androidx.annotation.DrawableRes
@@ -24,6 +20,7 @@ import chat.sphinx.chat_common.adapters.MessageListAdapter
 import chat.sphinx.chat_common.databinding.LayoutMessageHolderBinding
 import chat.sphinx.chat_common.databinding.LayoutMessageTypeAttachmentAudioBinding
 import chat.sphinx.chat_common.databinding.LayoutMessageTypePodcastClipBinding
+import chat.sphinx.chat_common.model.FeedItemPreview
 import chat.sphinx.chat_common.model.NodeDescriptor
 import chat.sphinx.chat_common.model.TribeLink
 import chat.sphinx.chat_common.model.UnspecifiedUrl
@@ -89,6 +86,73 @@ internal fun  LayoutMessageHolderBinding.setView(
     }
     disposables.clear()
 
+    fun loadImageAttachment(
+        imageView: ImageView,
+        loadingContainer: ConstraintLayout,
+        url: String,
+        media: MessageMedia?
+    ) {
+        lifecycleScope.launch(dispatchers.mainImmediate) {
+            val file: File? = media?.localFile
+
+            val options: ImageLoaderOptions? = if (media != null) {
+                val builder = ImageLoaderOptions.Builder()
+
+                builder.errorResId(
+                    if (viewState is MessageHolderViewState.Sent) {
+                        R.drawable.sent_image_not_available
+                    } else {
+                        R.drawable.received_image_not_available
+                    }
+                )
+
+                if (file == null) {
+                    media.host?.let { host ->
+                        memeServerTokenHandler.retrieveAuthenticationToken(host)
+                            ?.let { token ->
+                                builder.addHeader(token.headerKey, token.headerValue)
+
+                                media.mediaKeyDecrypted?.value?.let { key ->
+                                    val header = CryptoHeader.Decrypt.Builder()
+                                        .setScheme(CryptoScheme.Decrypt.JNCryptor)
+                                        .setPassword(key)
+                                        .build()
+
+                                    builder.addHeader(header.key, header.value)
+                                }
+                            }
+                    }
+                }
+
+                builder.build()
+            } else {
+                null
+            }
+
+            val disposable: Disposable = if (file != null) {
+                imageLoader.load(imageView, file, options, object : OnImageLoadListener {
+                    override fun onSuccess() {
+                        super.onSuccess()
+                        loadingContainer.gone
+                        onRowLayoutListener?.onRowHeightChanged()
+                    }
+                })
+            } else {
+                imageLoader.load(imageView, url, options, object : OnImageLoadListener {
+                    override fun onSuccess() {
+                        super.onSuccess()
+                        loadingContainer.gone
+                        onRowLayoutListener?.onRowHeightChanged()
+                    }
+                })
+            }
+
+            disposables.add(disposable)
+            disposable.await()
+        }
+    }
+
+
     apply {
         lifecycleScope.launch(dispatchers.mainImmediate) {
             val initialsColor = viewState.statusHeader?.colorKey?.let { key ->
@@ -98,7 +162,7 @@ internal fun  LayoutMessageHolderBinding.setView(
             }
 
             viewState.initialHolder.setInitialHolder(
-                includeMessageHolderChatImageInitialHolder.textViewInitials,
+                includeMessageHolderChatImageInitialHolder.textViewInitialsName,
                 includeMessageHolderChatImageInitialHolder.imageViewChatPicture,
                 includeMessageStatusHeader,
                 imageLoader,
@@ -142,68 +206,9 @@ internal fun  LayoutMessageHolderBinding.setView(
         )
         if (viewState.background !is BubbleBackground.Gone) {
             setBubbleImageAttachment(viewState.bubbleImageAttachment) { imageView, loadingContainer, url, media ->
-                lifecycleScope.launch(dispatchers.mainImmediate) {
-
-                    val file: File? = media?.localFile
-
-                    val options: ImageLoaderOptions? = if (media != null) {
-                        val builder = ImageLoaderOptions.Builder()
-
-                        builder.errorResId(
-                            if (viewState is MessageHolderViewState.Sent) {
-                                R.drawable.sent_image_not_available
-                            } else {
-                                R.drawable.received_image_not_available
-                            }
-                        )
-
-                        if (file == null) {
-                            media.host?.let { host ->
-                                memeServerTokenHandler.retrieveAuthenticationToken(host)
-                                    ?.let { token ->
-                                        builder.addHeader(token.headerKey, token.headerValue)
-
-                                        media.mediaKeyDecrypted?.value?.let { key ->
-                                            val header = CryptoHeader.Decrypt.Builder()
-                                                .setScheme(CryptoScheme.Decrypt.JNCryptor)
-                                                .setPassword(key)
-                                                .build()
-
-                                            builder.addHeader(header.key, header.value)
-                                        }
-                                    }
-                            }
-                        }
-
-                        builder.build()
-                    } else {
-                        null
-                    }
-
-                    val disposable: Disposable = if (file != null) {
-                        imageLoader.load(imageView, file, options, object: OnImageLoadListener {
-                            override fun onSuccess() {
-                                super.onSuccess()
-                                loadingContainer.gone
-                                onRowLayoutListener?.onRowHeightChanged()
-                            }
-                        })
-                    } else {
-                        imageLoader.load(imageView, url, options, object: OnImageLoadListener {
-                            override fun onSuccess() {
-                                super.onSuccess()
-                                loadingContainer.gone
-                                onRowLayoutListener?.onRowHeightChanged()
-                            }
-                        })
-                    }
-
-                    disposables.add(disposable)
-                    disposable.await()
-                }.let { job ->
-                    holderJobs.add(job)
-                }
+                loadImageAttachment(imageView,loadingContainer, url, media)
             }
+
             setBubbleAudioAttachment(
                 viewState.bubbleAudioAttachment,
                 audioPlayerController,
@@ -232,6 +237,30 @@ internal fun  LayoutMessageHolderBinding.setView(
                 viewState.bubbleMessage,
                 onSphinxInteractionListener
             )
+            setBubbleThreadLayout(
+                viewState.bubbleThread,
+                holderJobs,
+                dispatchers,
+                lifecycleScope,
+                userColorsHelper,
+                audioPlayerController,
+                loadImage = { imageView, url,  ->
+                lifecycleScope.launch(dispatchers.mainImmediate) {
+                    imageLoader.load(
+                        imageView,
+                        url,
+                        ImageLoaderOptions.Builder()
+                            .placeholderResId(R.drawable.ic_profile_avatar_circle)
+                            .transformation(Transformation.CircleCrop)
+                            .build()
+                    )
+                        .also { disposables.add(it) }
+                }.let { job ->
+                    holderJobs.add(job)
+                }
+            }, lastReplyImage = { imageView, constraintLayout, url, media ->
+                    loadImageAttachment(imageView, constraintLayout, url, media)
+            })
             setBubblePaidMessageLayout(
                 dispatchers,
                 holderJobs,
@@ -371,6 +400,7 @@ internal fun  LayoutMessageHolderBinding.setView(
             }
         }
     }
+
 }
 
 @MainThread
@@ -389,6 +419,7 @@ internal inline fun LayoutMessageHolderBinding.setUnsupportedMessageTypeLayout(
                 MessageType.DirectPayment,
                 MessageType.GroupAction.Join,
                 MessageType.GroupAction.Leave,
+                MessageType.CallLink,
                 MessageType.Message -> {
                     // 🤔 We should never get here since these message types ARE supported.
                     getString(R.string.placeholder_unsupported_message_type_default)
@@ -640,6 +671,7 @@ internal fun LayoutMessageHolderBinding.setBubbleBackground(
 
         var bubbleWidth: Int = when {
             viewState.message?.shouldAdaptBubbleWidth == true -> {
+
                 val textWidth = viewState.bubbleMessage?.let { nnBubbleMessage ->
                     (includeMessageHolderBubble.textViewMessageText.paint.measureText(
                         nnBubbleMessage.text ?: getString(R.string.decryption_error)
@@ -705,6 +737,8 @@ internal fun LayoutMessageHolderBinding.setBubbleBackground(
                 }
             }
             is MessageHolderViewState.Separator -> { }
+
+            is MessageHolderViewState.ThreadHeader -> { }
         }
     }
 }
@@ -810,6 +844,11 @@ internal inline fun LayoutMessageHolderBinding.setStatusHeader(
                 progressBarMessageStatusSending.goneIfFalse(statusHeader.showSendingIcon)
                 textViewMessageStatusSentBoltIcon.goneIfFalse(statusHeader.showBoltIcon)
                 layoutConstraintMessageStatusSentFailedContainer.goneIfFalse(statusHeader.showFailedContainer)
+
+                if (statusHeader.errorMessage?.isNotEmpty() == true) {
+                    textViewMessageStatusSentFailedText.text = statusHeader.errorMessage
+                }
+
             } else {
                 textViewMessageStatusReceivedTimestamp.text = statusHeader.timestamp
                 textViewMessageStatusReceivedLockIcon.goneIfFalse(statusHeader.showLockIcon)
@@ -944,6 +983,153 @@ internal inline fun LayoutMessageHolderBinding.setInvoicePaymentLayout(
 
 @MainThread
 @Suppress("NOTHING_TO_INLINE")
+internal inline fun LayoutMessageHolderBinding.setBubbleThreadLayout(
+    thread: LayoutState.Bubble.ContainerThird.Thread?,
+    holderJobs: ArrayList<Job>,
+    dispatchers: CoroutineDispatchers,
+    lifecycleScope: CoroutineScope,
+    userColorsHelper: UserColorsHelper,
+    audioPlayerController: AudioPlayerController,
+    loadImage: (ImageView, String) -> Unit,
+    lastReplyImage: (ImageView, ConstraintLayout, String, MessageMedia?) -> Unit
+) {
+    includeMessageHolderBubble.includeLayoutMessageThread.apply {
+        if (thread == null) {
+            root.gone
+        } else {
+            root.visible
+
+            val users = thread.users
+
+            setReplyRow(
+                users.elementAtOrNull(0),
+                layoutConstraintReplyOne,
+                layoutConstraintReplyOneBackground,
+                layoutLayoutChatImageSmallInitialHolderOne,
+                holderJobs,
+                dispatchers,
+                lifecycleScope,
+                userColorsHelper,
+                null,
+                thread.isSentMessage,
+                false,
+                loadImage
+            )
+
+            setReplyRow(
+                users.elementAtOrNull(1),
+                layoutConstraintReplyTwo,
+                layoutConstraintReplyTwoBackground,
+                layoutLayoutChatImageSmallInitialHolderTwo,
+                holderJobs,
+                dispatchers,
+                lifecycleScope,
+                userColorsHelper,
+                null,
+                thread.isSentMessage,
+                false,
+                loadImage
+            )
+
+            setReplyRow(
+                thread.lastReplyUser,
+                layoutConstraintLastReply,
+                layoutConstraintLastReplyBackground,
+                layoutLayoutChatImageSmallInitialHolderFour,
+                holderJobs,
+                dispatchers,
+                lifecycleScope,
+                userColorsHelper,
+                null,
+                thread.isSentMessage,
+                true,
+                loadImage
+            )
+
+            if (thread.replyCount > 3) {
+                layoutConstraintReplyThree.visible
+
+                layoutConstraintReplyThreeBackground.setBackgroundResource(
+                    if (thread.isSentMessage) {
+                        R.drawable.background_thread_row_reply_number_holder_sent
+                    } else {
+                        R.drawable.background_thread_row_reply_number_holder_received
+                    }
+                )
+                textViewRepliesCount.text = thread.replyCount.minus(3).toString()
+            }
+
+            layoutConstraintLastReply.apply {
+                textViewLastReplyMessageText.text = thread.lastReplyMessage
+                textViewLastReplyDate.text = thread.lastReplyDate
+                textViewLastReplyUserName.text = thread.lastReplyUser.alias?.value ?: "unknown"
+
+                textViewLastReplyMessageText.goneIfFalse(thread.lastReplyMessage?.isNotEmpty() == true)
+            }
+
+            includeMessageTypeAudioAttachment.seekBarAttachmentAudio.thumb = null
+
+            when (thread.mediaAttachment) {
+                is LayoutState.Bubble.ContainerSecond.ImageAttachment -> {
+                    constraintMediaThreadContainer.visible
+
+                    includeMessageTypeImageAttachment.root.visible
+                    includeMessageTypeVideoAttachment.root.gone
+                    includeMessageTypeAudioAttachment.root.gone
+                    includeMessageTypeFileAttachment.root.gone
+
+                    setBubbleImageAttachment(thread.mediaAttachment, true, lastReplyImage)
+                }
+                is LayoutState.Bubble.ContainerSecond.VideoAttachment -> {
+                    constraintMediaThreadContainer.visible
+
+                    includeMessageTypeImageAttachment.root.gone
+                    includeMessageTypeVideoAttachment.root.visible
+                    includeMessageTypeAudioAttachment.root.gone
+                    includeMessageTypeFileAttachment.root.gone
+
+                    setBubbleVideoAttachment(thread.mediaAttachment, true)
+                }
+                is LayoutState.Bubble.ContainerSecond.AudioAttachment -> {
+                    constraintMediaThreadContainer.visible
+
+                    includeMessageTypeImageAttachment.root.gone
+                    includeMessageTypeVideoAttachment.root.gone
+                    includeMessageTypeAudioAttachment.root.visible
+                    includeMessageTypeFileAttachment.root.gone
+
+                    setBubbleAudioAttachment(
+                        thread.mediaAttachment,
+                        audioPlayerController,
+                        dispatchers,
+                        holderJobs,
+                        lifecycleScope,
+                        true)
+                }
+                is LayoutState.Bubble.ContainerSecond.FileAttachment -> {
+                    constraintMediaThreadContainer.visible
+
+                    includeMessageTypeImageAttachment.root.gone
+                    includeMessageTypeVideoAttachment.root.gone
+                    includeMessageTypeAudioAttachment.root.gone
+                    includeMessageTypeFileAttachment.root.visible
+
+                    setBubbleFileAttachment(
+                        thread.mediaAttachment,
+                        true
+                    )
+                }
+                else -> {
+                    constraintMediaThreadContainer.gone
+                }
+            }
+        }
+    }
+
+}
+
+@MainThread
+@Suppress("NOTHING_TO_INLINE")
 internal inline fun LayoutMessageHolderBinding.setBubbleMessageLayout(
     message: LayoutState.Bubble.ContainerThird.Message?,
     onSphinxInteractionListener: SphinxUrlSpan.OnInteractionListener?
@@ -954,6 +1140,7 @@ internal inline fun LayoutMessageHolderBinding.setBubbleMessageLayout(
         } else {
             includeMessageHolderBubble.textViewPaidMessageText.gone
 
+            maxLines = if (message.isThread) 2 else Integer.MAX_VALUE
             visible
             text = message.text ?: getString(R.string.decryption_error)
 
@@ -1033,6 +1220,14 @@ internal fun LayoutMessageHolderBinding.setBubbleMessageLinkPreviewLayout(
     onRowLayoutListener: MessageListAdapter.OnRowLayoutListener?,
 ) {
     includeMessageHolderBubble.apply {
+
+    if (viewState.message?.thread?.isNotEmpty() == true) {
+        includeMessageLinkPreviewContact.root.gone
+        includeMessageLinkPreviewTribe.root.gone
+        includeMessageLinkPreviewUrl.root.gone
+
+        return
+    }
         val previewLink = viewState.messageLinkPreview
 
         val placeHolderAndTextColor = ContextCompat.getColor(
@@ -1186,6 +1381,11 @@ internal fun LayoutMessageHolderBinding.setBubbleMessageLinkPreviewLayout(
 
                     root.visible
                 }
+            }
+            is FeedItemPreview -> {
+                includeMessageLinkPreviewContact.root.gone
+                includeMessageLinkPreviewTribe.root.gone
+                includeMessageLinkPreviewUrl.root.gone
             }
             is UnspecifiedUrl -> {
                 includeMessageLinkPreviewContact.root.gone
@@ -1437,25 +1637,41 @@ internal inline fun LayoutMessageHolderBinding.setBubblePaidMessageSentStatusLay
 @Suppress("NOTHING_TO_INLINE")
 internal inline fun LayoutMessageHolderBinding.setBubbleImageAttachment(
     imageAttachment: LayoutState.Bubble.ContainerSecond.ImageAttachment?,
+    isThread: Boolean? = null,
     loadImage: (ImageView, ConstraintLayout, String, MessageMedia?) -> Unit,
 ) {
-    includeMessageHolderBubble.includeMessageTypeImageAttachment.apply {
+    val currentLayout = if (isThread == true) {
+        includeMessageHolderBubble.includeLayoutMessageThread.includeMessageTypeImageAttachment
+    } else {
+        includeMessageHolderBubble.includeMessageTypeImageAttachment
+    }
+
+    currentLayout.apply {
         if (imageAttachment == null) {
             root.gone
         } else {
             root.visible
 
+            val image = imageViewAttachmentImage
+
             if (imageAttachment.showPaidOverlay) {
                 layoutConstraintPaidImageOverlay.visible
 
-                imageViewAttachmentImage.gone
+                image.gone
             } else {
                 layoutConstraintPaidImageOverlay.gone
 
                 loadingImageProgressContainer.visible
-                imageViewAttachmentImage.visible
+                image.visible
 
-                loadImage(imageViewAttachmentImage, loadingImageProgressContainer, imageAttachment.url, imageAttachment.media)
+                if (imageAttachment.isThread) {
+                    val params = image.layoutParams as FrameLayout.LayoutParams
+                    params.height = 460
+
+                    image.layoutParams = params
+                }
+
+                loadImage(image, loadingImageProgressContainer, imageAttachment.url, imageAttachment.media)
             }
         }
     }
@@ -1469,8 +1685,15 @@ internal inline fun LayoutMessageHolderBinding.setBubbleAudioAttachment(
     dispatchers: CoroutineDispatchers,
     holderJobs: ArrayList<Job>,
     lifecycleScope: CoroutineScope,
+    isThread: Boolean? = null
 ) {
-    includeMessageHolderBubble.includeMessageTypeAudioAttachment.apply {
+    val currentLayout = if (isThread == true) {
+        includeMessageHolderBubble.includeLayoutMessageThread.includeMessageTypeAudioAttachment
+    } else {
+        includeMessageHolderBubble.includeMessageTypeAudioAttachment
+    }
+
+    currentLayout.apply {
         @Exhaustive
         when (audioAttachment) {
             null -> {
@@ -1648,8 +1871,15 @@ internal inline fun LayoutMessageTypePodcastClipBinding.setPodcastClipLayoutForS
 @Suppress("NOTHING_TO_INLINE")
 internal inline fun LayoutMessageHolderBinding.setBubbleVideoAttachment(
     videoAttachment: LayoutState.Bubble.ContainerSecond.VideoAttachment?,
+    isThread: Boolean? = null
 ) {
-    includeMessageHolderBubble.includeMessageTypeVideoAttachment.apply {
+    val currentLayout = if (isThread == true) {
+        includeMessageHolderBubble.includeLayoutMessageThread.includeMessageTypeVideoAttachment
+    } else {
+        includeMessageHolderBubble.includeMessageTypeVideoAttachment
+    }
+
+    currentLayout.apply {
         imageViewAttachmentThumbnail.gone
         layoutConstraintVideoPlayButton.gone
 
@@ -1689,9 +1919,16 @@ internal inline fun LayoutMessageHolderBinding.setBubbleVideoAttachment(
 @MainThread
 @Suppress("NOTHING_TO_INLINE")
 internal inline fun LayoutMessageHolderBinding.setBubbleFileAttachment(
-    fileAttachment: LayoutState.Bubble.ContainerSecond.FileAttachment?
+    fileAttachment: LayoutState.Bubble.ContainerSecond.FileAttachment?,
+    isThread: Boolean? = null
 ) {
-    includeMessageHolderBubble.includeMessageTypeFileAttachment.apply {
+    val currentLayout = if (isThread == true) {
+        includeMessageHolderBubble.includeLayoutMessageThread.includeMessageTypeFileAttachment
+    } else {
+        includeMessageHolderBubble.includeMessageTypeFileAttachment
+    }
+
+    currentLayout.apply {
 
         @Exhaustive
         when (fileAttachment){
@@ -1875,12 +2112,12 @@ internal inline fun LayoutMessageHolderBinding.setReactionBoostSender(
 
             imageHolderBinding.apply {
 
-                textViewInitials.visible
-                textViewInitials.text = (boostSenderHolder.alias?.value ?: root.context.getString(R.string.unknown)).getInitials()
+                textViewInitialsName.visible
+                textViewInitialsName.text = (boostSenderHolder.alias?.value ?: root.context.getString(R.string.unknown)).getInitials()
                 imageViewChatPicture.gone
 
                 lifecycleScope.launch(dispatchers.mainImmediate) {
-                    textViewInitials.setBackgroundRandomColor(
+                    textViewInitialsName.setBackgroundRandomColor(
                         R.drawable.chat_initials_circle,
                         Color.parseColor(
                             userColorsHelper.getHexCodeForKey(
@@ -1893,7 +2130,7 @@ internal inline fun LayoutMessageHolderBinding.setReactionBoostSender(
                 }
 
                 boostSenderHolder.photoUrl?.let { photoUrl ->
-                    textViewInitials.gone
+                    textViewInitialsName.gone
                     imageViewChatPicture.visible
                     loadImage(imageViewChatPicture, photoUrl.value)
                 }
@@ -1901,6 +2138,78 @@ internal inline fun LayoutMessageHolderBinding.setReactionBoostSender(
         }
     }
 }
+
+@MainThread
+@Suppress("NOTHING_TO_INLINE")
+internal inline fun LayoutMessageHolderBinding.setReplyRow(
+    replyUserHolder: ReplyUserHolder?,
+    container: ConstraintLayout,
+    backgroundContainer: ConstraintLayout,
+    imageHolderBinding: LayoutChatImageSmallInitialHolderBinding,
+    holderJobs: ArrayList<Job>,
+    dispatchers: CoroutineDispatchers,
+    lifecycleScope: CoroutineScope,
+    userColorsHelper: UserColorsHelper,
+    repliesNumber: String? = null,
+    isSentMessage: Boolean,
+    isLastReply: Boolean = false,
+    loadImage: (ImageView, String) -> Unit,
+) {
+    container.let { replyContainer ->
+        if (replyUserHolder == null) {
+            replyContainer.gone
+        } else {
+            replyContainer.visible
+
+            imageHolderBinding.apply {
+
+                val rowBackground = when {
+                    isLastReply -> if (isSentMessage) {
+                        R.drawable.background_thread_row_last_reply_holder_sent
+                    } else {
+                        R.drawable.background_thread_row_last_reply_holder_received
+                    }
+                    else -> if (isSentMessage) {
+                        R.drawable.background_thread_row_reply_holder_sent
+                    } else {
+                        R.drawable.background_thread_row_reply_holder_received
+                    }
+                }
+
+                backgroundContainer.setBackgroundResource(rowBackground)
+
+                val text = (replyUserHolder?.alias?.value ?: root.context.getString(
+                    R.string.unknown
+                )).getInitials()
+
+                textViewInitialsName.visible
+                textViewInitialsName.text = text
+                imageViewChatPicture.gone
+
+                lifecycleScope.launch(dispatchers.mainImmediate) {
+                    textViewInitialsName.setBackgroundRandomColor(
+                        R.drawable.chat_initials_circle,
+                        Color.parseColor(
+                            userColorsHelper.getHexCodeForKey(
+                                replyUserHolder!!.colorKey,
+                                root.context.getRandomHexCode(),
+                            )
+                        )
+                    )
+                }.let { job ->
+                    holderJobs.add(job)
+                }
+
+                replyUserHolder!!.photoUrl?.let { photoUrl ->
+                    textViewInitialsName.gone
+                    imageViewChatPicture.visible
+                    loadImage(imageViewChatPicture, photoUrl.value)
+                }
+            }
+        }
+    }
+}
+
 
 @MainThread
 @Suppress("NOTHING_TO_INLINE")

@@ -13,9 +13,7 @@ android {
     buildFeatures.viewBinding = true
     defaultConfig {
         minSdkVersion versions.minSdk
-        targetSdkVersion versions.compileSdk
-        versionCode VERSION_CODE.toInteger()
-        versionName VERSION_NAME
+        targetSdkVersion versions.targetSdk
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments disableAnalytics: 'true'
@@ -27,12 +25,14 @@ android {
             minifyEnabled false
         }
     }
+    namespace 'chat.sphinx.invite_friend'
 }
 
 dependencies {
     implementation fileTree(dir: "libs", include: ["*.jar"])
     // KotlinAndroid
     implementation project(path: ':android:features:android-feature-screens')
+    implementation project(path: ':sphinx:application:common:screen-detail-fragment')
     implementation project(path: ':sphinx:screens-detail:common:detail-resources')
 
     // Sphinx
@@ -42,7 +42,6 @@ dependencies {
 
     api project(path: ':sphinx:application:data:concepts:repositories:concept-repository-contact')
 
-    implementation deps.androidx.lifecycle.hilt
     implementation deps.google.hilt
     kapt kaptDeps.google.hilt
 }

@@ -1,7 +1,9 @@
 package chat.sphinx.web_view.ui
 
 import android.animation.Animator
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -23,6 +25,7 @@ import chat.sphinx.concept_image_loader.Transformation
 import chat.sphinx.insetter_activity.InsetterActivity
 import chat.sphinx.insetter_activity.addNavigationBarPadding
 import chat.sphinx.resources.inputMethodManager
+import chat.sphinx.screen_detail_fragment.SideEffectDetailFragment
 import chat.sphinx.web_view.R
 import chat.sphinx.web_view.databinding.FragmentWebViewBinding
 import chat.sphinx.wrapper_common.PhotoUrl
@@ -30,8 +33,6 @@ import chat.sphinx.wrapper_common.lightning.Sat
 import chat.sphinx.wrapper_common.lightning.asFormattedString
 import chat.sphinx.wrapper_common.lightning.toSat
 import dagger.hilt.android.AndroidEntryPoint
-import io.matthewnelson.android_feature_screens.ui.base.BaseFragment
-import io.matthewnelson.android_feature_screens.ui.sideeffect.SideEffectFragment
 import io.matthewnelson.android_feature_screens.util.gone
 import io.matthewnelson.android_feature_screens.util.goneIfFalse
 import io.matthewnelson.android_feature_screens.util.visible
@@ -39,7 +40,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
-internal class WebViewFragment: SideEffectFragment<
+internal class WebViewFragment: SideEffectDetailFragment<
         FragmentActivity,
         WebViewSideEffect,
         WebViewViewState,
@@ -91,6 +92,12 @@ internal class WebViewFragment: SideEffectFragment<
         setupFragmentLayout()
     }
 
+    override fun closeDetailsScreen() {
+        lifecycleScope.launch(viewModel.mainImmediate) {
+            viewModel.navigator.closeDetailScreen()
+        }
+    }
+
     private fun setupFragmentLayout() {
         (requireActivity() as InsetterActivity)
             .addNavigationBarPadding(binding.layoutConstraintWebViewLayout)
@@ -100,15 +107,15 @@ internal class WebViewFragment: SideEffectFragment<
         binding.apply {
             includeLayoutBoostFireworks.apply {
                 lottieAnimationView.addAnimatorListener(object : Animator.AnimatorListener{
-                    override fun onAnimationEnd(animation: Animator?) {
+                    override fun onAnimationStart(animation: Animator) {}
+
+                    override fun onAnimationEnd(animation: Animator) {
                         root.gone
                     }
 
-                    override fun onAnimationRepeat(animation: Animator?) {}
+                    override fun onAnimationCancel(animation: Animator) {}
 
-                    override fun onAnimationCancel(animation: Animator?) {}
-
-                    override fun onAnimationStart(animation: Animator?) {}
+                    override fun onAnimationRepeat(animation: Animator) {}
                 })
             }
 
@@ -195,6 +202,13 @@ internal class WebViewFragment: SideEffectFragment<
             webView.webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val url = request?.url.toString()
+
+                    if (url.contains("open=system")) {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        view?.context?.startActivity(intent)
+                        return true
+                    }
+
                     view?.loadUrl(url)
                     return super.shouldOverrideUrlLoading(view, request)
                 }

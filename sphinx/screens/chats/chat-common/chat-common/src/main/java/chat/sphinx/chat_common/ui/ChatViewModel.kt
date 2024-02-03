@@ -3,7 +3,6 @@ package chat.sphinx.chat_common.ui
 import android.app.Application
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -27,10 +26,7 @@ import chat.sphinx.camera_view_model_coordinator.request.CameraRequest
 import chat.sphinx.camera_view_model_coordinator.response.CameraResponse
 import chat.sphinx.chat_common.BuildConfig
 import chat.sphinx.chat_common.R
-import chat.sphinx.chat_common.model.MessageLinkPreview
-import chat.sphinx.chat_common.model.NodeDescriptor
-import chat.sphinx.chat_common.model.TribeLink
-import chat.sphinx.chat_common.model.UnspecifiedUrl
+import chat.sphinx.chat_common.model.*
 import chat.sphinx.chat_common.navigation.ChatNavigator
 import chat.sphinx.chat_common.ui.viewstate.InitialHolderViewState
 import chat.sphinx.chat_common.ui.viewstate.attachment.AttachmentFullscreenViewState
@@ -41,9 +37,15 @@ import chat.sphinx.chat_common.ui.viewstate.mentions.MessageMentionsViewState
 import chat.sphinx.chat_common.ui.viewstate.menu.ChatMenuViewState
 import chat.sphinx.chat_common.ui.viewstate.messageholder.*
 import chat.sphinx.chat_common.ui.viewstate.messagereply.MessageReplyViewState
+import chat.sphinx.chat_common.ui.viewstate.scrolldown.ScrollDownViewState
 import chat.sphinx.chat_common.ui.viewstate.search.MessagesSearchViewState
 import chat.sphinx.chat_common.ui.viewstate.selected.SelectedMessageViewState
-import chat.sphinx.chat_common.util.*
+import chat.sphinx.chat_common.ui.viewstate.shimmer.ShimmerViewState
+import chat.sphinx.chat_common.ui.viewstate.thread.ThreadHeaderViewState
+import chat.sphinx.chat_common.util.AudioPlayerController
+import chat.sphinx.chat_common.util.AudioPlayerControllerImpl
+import chat.sphinx.chat_common.util.AudioRecorderController
+import chat.sphinx.chat_common.util.SphinxLinkify
 import chat.sphinx.concept_image_loader.ImageLoaderOptions
 import chat.sphinx.concept_link_preview.LinkPreviewHandler
 import chat.sphinx.concept_link_preview.model.TribePreviewName
@@ -55,6 +57,8 @@ import chat.sphinx.concept_network_query_people.NetworkQueryPeople
 import chat.sphinx.concept_repository_actions.ActionsRepository
 import chat.sphinx.concept_repository_chat.ChatRepository
 import chat.sphinx.concept_repository_contact.ContactRepository
+import chat.sphinx.concept_repository_dashboard_android.RepositoryDashboardAndroid
+import chat.sphinx.concept_repository_feed.FeedRepository
 import chat.sphinx.concept_repository_media.RepositoryMedia
 import chat.sphinx.concept_repository_message.MessageRepository
 import chat.sphinx.concept_repository_message.model.SendMessage
@@ -69,13 +73,17 @@ import chat.sphinx.wrapper_common.*
 import chat.sphinx.wrapper_common.chat.ChatUUID
 import chat.sphinx.wrapper_common.dashboard.ChatId
 import chat.sphinx.wrapper_common.dashboard.ContactId
+import chat.sphinx.wrapper_common.feed.FeedItemLink
+import chat.sphinx.wrapper_common.feed.toFeedItemLink
 import chat.sphinx.wrapper_common.lightning.*
-import chat.sphinx.wrapper_common.message.MessageId
-import chat.sphinx.wrapper_common.message.MessageUUID
-import chat.sphinx.wrapper_common.message.SphinxCallLink
+import chat.sphinx.wrapper_common.message.*
 import chat.sphinx.wrapper_common.tribe.TribeJoinLink
 import chat.sphinx.wrapper_common.tribe.toTribeJoinLink
 import chat.sphinx.wrapper_contact.*
+import chat.sphinx.wrapper_feed.Feed
+import chat.sphinx.wrapper_feed.isNewsletter
+import chat.sphinx.wrapper_feed.isPodcast
+import chat.sphinx.wrapper_feed.isVideo
 import chat.sphinx.wrapper_message.*
 import chat.sphinx.wrapper_message_media.*
 import com.giphy.sdk.core.models.Media
@@ -85,6 +93,7 @@ import com.giphy.sdk.ui.themes.GPHTheme
 import com.giphy.sdk.ui.themes.GridType
 import com.giphy.sdk.ui.utils.aspectRatio
 import com.giphy.sdk.ui.views.GiphyDialogFragment
+import com.squareup.moshi.Moshi
 import io.matthewnelson.android_feature_viewmodel.MotionLayoutViewModel
 import io.matthewnelson.android_feature_viewmodel.currentViewState
 import io.matthewnelson.android_feature_viewmodel.submitSideEffect
@@ -95,7 +104,6 @@ import io.matthewnelson.concept_views.viewstate.ViewStateContainer
 import io.matthewnelson.concept_views.viewstate.value
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import org.jitsi.meet.sdk.JitsiMeet
 import org.jitsi.meet.sdk.JitsiMeetActivity
 import org.jitsi.meet.sdk.JitsiMeetConferenceOptions
 import org.jitsi.meet.sdk.JitsiMeetUserInfo
@@ -112,11 +120,13 @@ abstract class ChatViewModel<ARGS : NavArgs>(
     dispatchers: CoroutineDispatchers,
     val memeServerTokenHandler: MemeServerTokenHandler,
     val chatNavigator: ChatNavigator,
-    private val repositoryMedia: RepositoryMedia,
+    protected val repositoryMedia: RepositoryMedia,
+    protected val feedRepository: FeedRepository,
     protected val chatRepository: ChatRepository,
     protected val contactRepository: ContactRepository,
     protected val messageRepository: MessageRepository,
     protected val actionsRepository: ActionsRepository,
+    protected val repositoryDashboard: RepositoryDashboardAndroid<Any>,
     protected val networkQueryLightning: NetworkQueryLightning,
     protected val networkQueryPeople: NetworkQueryPeople,
     val mediaCacheHandler: MediaCacheHandler,
@@ -124,6 +134,7 @@ abstract class ChatViewModel<ARGS : NavArgs>(
     protected val cameraCoordinator: ViewModelCoordinator<CameraRequest, CameraResponse>,
     protected val linkPreviewHandler: LinkPreviewHandler,
     private val memeInputStreamHandler: MemeInputStreamHandler,
+    val moshi: Moshi,
     protected val LOG: SphinxLogger,
 ) : MotionLayoutViewModel<
         Nothing,
@@ -166,7 +177,34 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         ViewStateContainer(MessageMentionsViewState.MessageMentions(listOf()))
     }
 
+    val scrollDownViewStateContainer: ViewStateContainer<ScrollDownViewState> by lazy {
+        ViewStateContainer(ScrollDownViewState.Off)
+    }
+
+    val chatHeaderViewStateContainer: ViewStateContainer<ChatHeaderViewState> by lazy {
+        ChatHeaderViewStateContainer()
+    }
+
+    val threadHeaderViewState: ViewStateContainer<ThreadHeaderViewState> by lazy {
+        ViewStateContainer(
+            if (isThreadChat()) {
+                ThreadHeaderViewState.BasicHeader
+            } else {
+                ThreadHeaderViewState.Idle
+            }
+        )
+    }
+
+    val shimmerViewState: ViewStateContainer<ShimmerViewState> by lazy {
+        ViewStateContainer(ShimmerViewState.On)
+    }
+
+    private val latestThreadMessagesFlow: MutableStateFlow<List<Message>?> = MutableStateFlow(null)
+    private val scrollDownButtonCount: MutableStateFlow<Long?> = MutableStateFlow(null)
+
     protected abstract val chatSharedFlow: SharedFlow<Chat?>
+
+    protected abstract val threadSharedFlow: SharedFlow<List<Message>>?
 
     abstract val headerInitialHolderSharedFlow: SharedFlow<InitialHolderViewState>
 
@@ -230,8 +268,32 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         )
     }
 
-    val chatHeaderViewStateContainer: ViewStateContainer<ChatHeaderViewState> by lazy {
-        ChatHeaderViewStateContainer()
+    private fun collectThread() {
+        viewModelScope.launch(mainImmediate) {
+            threadSharedFlow?.collect { messages ->
+                latestThreadMessagesFlow.value = messages
+            }
+        }
+    }
+
+    private fun collectUnseenMessagesNumber() {
+        viewModelScope.launch(mainImmediate) {
+            if (!isThreadChat()) {
+                repositoryDashboard.getUnseenMessagesByChatId(getChat().id).collect { unseenMessagesCount ->
+                    scrollDownButtonCount.value = unseenMessagesCount
+                }
+            }
+        }
+    }
+
+    fun updateScrollDownButton(showButton: Boolean) {
+        val newState = if (showButton) {
+            val count = scrollDownButtonCount.value?.takeIf { it > 0 }?.toString()
+            ScrollDownViewState.On(count)
+        } else {
+            ScrollDownViewState.Off
+        }
+        scrollDownViewStateContainer.updateViewState(newState)
     }
 
     suspend fun getChat(): Chat {
@@ -382,11 +444,13 @@ abstract class ChatViewModel<ARGS : NavArgs>(
             var openSentPaidInvoicesCount = 0
             var openReceivedPaidInvoicesCount = 0
 
-            for ((index, message) in messages.withIndex()) {
+            val messagesList = filterAndSortMessagesIfNecessary(chat, messages)
 
-                val previousMessage: Message? = if (index > 0) messages[index - 1] else null
+            for ((index, message) in messagesList.withIndex()) {
+
+                val previousMessage: Message? = if (index > 0) messagesList[index - 1] else null
                 val nextMessage: Message? =
-                    if (index < messages.size - 1) messages[index + 1] else null
+                    if (index < messagesList.size - 1) messagesList[index + 1] else null
 
                 val groupingDateAndBubbleBackground = getBubbleBackgroundForMessage(
                     message,
@@ -412,6 +476,54 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                     openReceivedPaidInvoicesCount > 0
                 )
 
+                val isOwner: Boolean = message.sender == owner.id
+
+                val isThreadHeaderMessage = (message.uuid?.value == getThreadUUID()?.value && index == 0 && !message.type.isGroupAction())
+
+                if (isThreadHeaderMessage) {
+                    newList.add(
+                        MessageHolderViewState.ThreadHeader(
+                            message,
+                            MessageHolderType.ThreadHeader,
+                            chat,
+                            tribeAdmin,
+                            InitialHolderViewState.None,
+                            messageSenderInfo = { messageCallback ->
+                                when {
+                                    messageCallback.sender == chat.contactIds.firstOrNull() -> {
+                                        val accountOwner = contactRepository.accountOwner.value
+
+                                        Triple(
+                                            accountOwner?.photoUrl,
+                                            accountOwner?.alias,
+                                            accountOwner?.getColorKey() ?: ""
+                                        )
+                                    }
+
+                                    chat.type.isConversation() -> {
+                                        Triple(
+                                            chatPhotoUrl,
+                                            chatName?.value?.toContactAlias(),
+                                            chatColorKey
+                                        )
+                                    }
+
+                                    else -> {
+                                        Triple(
+                                            messageCallback.senderPic,
+                                            messageCallback.senderAlias?.value?.toContactAlias(),
+                                            messageCallback.getColorKey()
+                                        )
+                                    }
+                                }
+                            },
+                            accountOwner = { owner },
+                            message.date.chatTimeFormat()
+                        )
+                    )
+                    continue
+                }
+
                 if (!message.seen.isTrue() && !sent && !unseenSeparatorAdded) {
                     newList.add(
                         MessageHolderViewState.Separator(
@@ -427,8 +539,11 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                     )
                     unseenSeparatorAdded = true
                 }
+                // Consider last reply or message and last reply of previous message if exists
+                val actualMessage = message.thread?.last() ?: message
+                val actualPreviousMessage = previousMessage?.thread?.last() ?: previousMessage
 
-                if (previousMessage == null || message.date.isDifferentDayThan(previousMessage.date)) {
+                if (actualPreviousMessage == null || actualMessage.date.isDifferentDayThan(actualPreviousMessage.date)) {
                     newList.add(
                         MessageHolderViewState.Separator(
                             MessageHolderType.DateSeparator,
@@ -449,10 +564,10 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                     (sent && !message.isPaidInvoice) ||
                     (!sent && message.isPaidInvoice)
                 ) {
-
                     newList.add(
                         MessageHolderViewState.Sent(
                             message,
+
                             chat,
                             tribeAdmin,
                             background = when {
@@ -506,80 +621,97 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                             },
                             onBindDownloadMedia = {
                                 repositoryMedia.downloadMediaIfApplicable(message, sent)
+                            },
+                            onBindThreadDownloadMedia = {
+                                message.thread?.last()?.let { lastReplyMessage ->
+                                    repositoryMedia.downloadMediaIfApplicable(lastReplyMessage, sent)
+                                }
                             }
                         )
                     )
                 } else {
-                    newList.add(
-                        MessageHolderViewState.Received(
-                            message,
-                            chat,
-                            tribeAdmin,
-                            background = when {
-                                isDeleted -> {
-                                    BubbleBackground.Gone(setSpacingEqual = false)
-                                }
-                                message.isFlagged -> {
-                                    BubbleBackground.Gone(setSpacingEqual = false)
-                                }
-                                message.type.isInvoicePayment() -> {
-                                    BubbleBackground.Gone(setSpacingEqual = false)
-                                }
-                                message.type.isGroupAction() -> {
-                                    BubbleBackground.Gone(setSpacingEqual = true)
-                                }
-                                else -> {
-                                    groupingDateAndBubbleBackground.second
-                                }
-                            },
-                            invoiceLinesHolderViewState = invoiceLinesHolderViewState,
-                            initialHolder = when {
-                                isDeleted || message.type.isGroupAction() -> {
-                                    InitialHolderViewState.None
-                                }
-                                else -> {
-                                    getInitialHolderViewStateForReceivedMessage(message, owner)
-                                }
-                            },
-                            highlightedText = null,
-                            messageSenderInfo = { messageCallback ->
-                                when {
-                                    messageCallback.sender == chat.contactIds.firstOrNull() -> {
-                                        val accountOwner = contactRepository.accountOwner.value
+                        newList.add(
+                            MessageHolderViewState.Received(
+                                message,
+                                chat,
+                                tribeAdmin,
+                                background = when {
+                                    isDeleted -> {
+                                        BubbleBackground.Gone(setSpacingEqual = false)
+                                    }
 
-                                        Triple(
-                                            accountOwner?.photoUrl,
-                                            accountOwner?.alias,
-                                            accountOwner?.getColorKey() ?: ""
-                                        )
+                                    message.isFlagged -> {
+                                        BubbleBackground.Gone(setSpacingEqual = false)
                                     }
-                                    chat.type.isConversation() -> {
-                                        Triple(
-                                            chatPhotoUrl,
-                                            chatName?.value?.toContactAlias(),
-                                            chatColorKey
-                                        )
+
+                                    message.type.isInvoicePayment() -> {
+                                        BubbleBackground.Gone(setSpacingEqual = false)
                                     }
+
+                                    message.type.isGroupAction() -> {
+                                        BubbleBackground.Gone(setSpacingEqual = true)
+                                    }
+
                                     else -> {
-                                        Triple(
-                                            messageCallback.senderPic,
-                                            messageCallback.senderAlias?.value?.toContactAlias(),
-                                            messageCallback.getColorKey()
-                                        )
+                                        groupingDateAndBubbleBackground.second
+                                    }
+                                },
+                                invoiceLinesHolderViewState = invoiceLinesHolderViewState,
+                                initialHolder = when {
+                                    isDeleted || message.type.isGroupAction() -> {
+                                        InitialHolderViewState.None
+                                    }
+
+                                    else -> {
+                                        getInitialHolderViewStateForReceivedMessage(message, owner)
+                                    }
+                                },
+                                highlightedText = null,
+                                messageSenderInfo = { messageCallback ->
+                                    when {
+                                        messageCallback.sender == chat.contactIds.firstOrNull() -> {
+                                            val accountOwner = contactRepository.accountOwner.value
+
+                                            Triple(
+                                                accountOwner?.photoUrl,
+                                                accountOwner?.alias,
+                                                accountOwner?.getColorKey() ?: ""
+                                            )
+                                        }
+
+                                        chat.type.isConversation() -> {
+                                            Triple(
+                                                chatPhotoUrl,
+                                                chatName?.value?.toContactAlias(),
+                                                chatColorKey
+                                            )
+                                        }
+
+                                        else -> {
+                                            Triple(
+                                                messageCallback.senderPic,
+                                                messageCallback.senderAlias?.value?.toContactAlias(),
+                                                messageCallback.getColorKey()
+                                            )
+                                        }
+                                    }
+                                },
+                                accountOwner = { owner },
+                                urlLinkPreviewsEnabled = areUrlLinkPreviewsEnabled(),
+                                previewProvider = { link -> handleLinkPreview(link) },
+                                paidTextMessageContentProvider = { messageCallback ->
+                                    handlePaidTextMessageContent(messageCallback)
+                                },
+                                onBindDownloadMedia = {
+                                    repositoryMedia.downloadMediaIfApplicable(message, sent)
+                                },
+                                onBindThreadDownloadMedia = {
+                                    message.thread?.last()?.let { lastReplyMessage ->
+                                        repositoryMedia.downloadMediaIfApplicable(lastReplyMessage, sent)
                                     }
                                 }
-                            },
-                            accountOwner = { owner },
-                            urlLinkPreviewsEnabled = areUrlLinkPreviewsEnabled(),
-                            previewProvider = { link -> handleLinkPreview(link) },
-                            paidTextMessageContentProvider = { messageCallback ->
-                                handlePaidTextMessageContent(messageCallback)
-                            },
-                            onBindDownloadMedia = {
-                                repositoryMedia.downloadMediaIfApplicable(message, sent)
-                            }
+                            )
                         )
-                    )
                 }
 
                 if (message.isPaidInvoice) {
@@ -593,6 +725,41 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         }
 
         return newList
+    }
+
+    private fun filterAndSortMessagesIfNecessary(
+        chat: Chat,
+        messages: List<Message>,
+    ): List<Message> {
+        val filteredMessages: MutableList<Message> = mutableListOf()
+        val threadMessageMap: MutableMap<String, Int> = mutableMapOf()
+
+        // Filter messages to do not show thread replies on chat
+        if (chat.isTribe() && !isThreadChat()) {
+            for (message in messages) {
+
+                if (message.thread?.isNotEmpty() == true) {
+                    message.uuid?.value?.let { uuid ->
+                        threadMessageMap[uuid] = message.thread?.count() ?: 0
+                    }
+                }
+
+                val shouldAddMessage = message.threadUUID?.let { threadUUID ->
+                    val count = threadMessageMap[threadUUID.value] ?: 0
+                    count <= 1
+                } ?: true
+
+                if (shouldAddMessage) {
+                    filteredMessages.add(message)
+                }
+            }
+        } else {
+            filteredMessages.addAll(messages)
+        }
+
+        // Sort messages list by the last thread message date if applicable
+
+        return filteredMessages.sortedBy { it.thread?.last()?.date?.value ?: it.date.value }
     }
 
     internal val messageHolderViewStateFlow: MutableStateFlow<List<MessageHolderViewState>> by lazy {
@@ -693,6 +860,7 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                         // no - op
                     }
                 }
+                is FeedItemPreview -> {}
                 is UnspecifiedUrl -> {
 
                     if (areUrlLinkPreviewsEnabled()) {
@@ -761,7 +929,8 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                             text?.let { nnText ->
                                 messageLayoutState = LayoutState.Bubble.ContainerThird.Message(
                                     text = nnText,
-                                    decryptionError = false
+                                    decryptionError = false,
+                                    isThread = false
                                 )
 
                                 nnText.toMessageContentDecrypted()?.let { messageContentDecrypted ->
@@ -818,26 +987,79 @@ abstract class ChatViewModel<ARGS : NavArgs>(
 
     var messagesLoadJob: Job? = null
     fun screenInit() {
+        if (messageHolderViewStateFlow.value.isNotEmpty()) {
+            return
+        }
+
+        if (chatId == null) {
+            shimmerViewState.updateViewState(ShimmerViewState.Off)
+        }
+
+        var isScrollDownButtonSetup = false
         messagesLoadJob = viewModelScope.launch(mainImmediate) {
-            messageRepository.getAllMessagesToShowByChatId(getChat().id, 20).firstOrNull()
-                ?.let { messages ->
-                    messageHolderViewStateFlow.value =
-                        getMessageHolderViewStateList(messages).toList()
+            if (isThreadChat()) {
+                messageRepository.getAllMessagesToShowByChatId(getChat().id, 0, getThreadUUID()).distinctUntilChanged().collect { messages ->
+                    delay(200)
+
+                    val originalMessage = messageRepository.getMessageByUUID(MessageUUID(getThreadUUID()?.value!!)).firstOrNull()
+                    val completeThread = listOf(originalMessage) + messages.reversed()
+                    val list = getMessageHolderViewStateList(completeThread.filterNotNull()).toList()
+
+                    messageHolderViewStateFlow.value = list
+                    changeThreadHeaderState(true)
+                    shimmerViewState.updateViewState(ShimmerViewState.Off)
+
+                    scrollDownButtonCount.value = messages.size.toLong()
+                }
+            } else {
+                messageRepository.getAllMessagesToShowByChatId(getChat().id, 100).firstOrNull()?.let { messages ->
+                    delay(200)
+
+                    messageHolderViewStateFlow.value = getMessageHolderViewStateList(messages).toList()
+                    shimmerViewState.updateViewState(ShimmerViewState.Off)
                 }
 
-            delay(1000L)
+                delay(1000L)
 
-            messageRepository.getAllMessagesToShowByChatId(getChat().id, 1000)
-                .distinctUntilChanged().collect { messages ->
-                messageHolderViewStateFlow.value =
-                    getMessageHolderViewStateList(messages).toList()
+                messageRepository.getAllMessagesToShowByChatId(getChat().id, 1000).distinctUntilChanged().collect { messages ->
+                    messageHolderViewStateFlow.value = getMessageHolderViewStateList(messages).toList()
+                    shimmerViewState.updateViewState(ShimmerViewState.Off)
+
+                    reloadPinnedMessage()
+
+                    if (!isScrollDownButtonSetup) {
+                        setupScrollDownButtonCount()
+                        isScrollDownButtonSetup = true
+                    }
+                }
             }
+        }
+        collectThread()
+        collectUnseenMessagesNumber()
+    }
+
+        private fun setupScrollDownButtonCount() {
+        val unseenMessagesCount = scrollDownButtonCount.value ?: 0
+        if (unseenMessagesCount > 0.toLong()) {
+            scrollDownViewStateContainer.updateViewState(
+                ScrollDownViewState.On(unseenMessagesCount.toString())
+            )
+        } else {
+            scrollDownViewStateContainer.updateViewState(
+                ScrollDownViewState.Off
+            )
         }
     }
 
     abstract val checkRoute: Flow<LoadResponse<Boolean, ResponseError>>
 
     abstract fun readMessages()
+
+    abstract fun reloadPinnedMessage()
+
+    abstract fun getThreadUUID(): ThreadUUID?
+
+    abstract fun isThreadChat(): Boolean
 
     suspend fun createPaidMessageFile(text: String?): File? {
         if (text.isNullOrEmpty()) {
@@ -888,10 +1110,21 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         } ?: msg.first?.let { message ->
             messageRepository.sendMessage(message)
 
+            joinCallIfNeeded(message)
 //            trackMessage(message.text)
         }
 
         return msg.first
+    }
+
+    private fun joinCallIfNeeded(message: SendMessage) {
+        if (message.isCall) {
+            message.text
+                ?.replaceFirst(CallLinkMessage.MESSAGE_PREFIX, "")
+                ?.toCallLinkMessageOrNull(moshi)?.link?.let { link ->
+                    joinCall(link, link.startAudioOnly)
+            }
+        }
     }
 
 //    private fun trackMessage(text: String?) {
@@ -993,7 +1226,9 @@ abstract class ChatViewModel<ARGS : NavArgs>(
             MenuBottomViewState.Closed
         )
 
-        if (messagesSearchViewStateContainer.viewStateFlow.value is MessagesSearchViewState.Idle) {
+        if (
+            messagesSearchViewStateContainer.viewStateFlow.value is MessagesSearchViewState.Idle
+        ) {
             loadAllMessages()
         }
 
@@ -1001,7 +1236,9 @@ abstract class ChatViewModel<ARGS : NavArgs>(
             text?.let { nnText ->
                 if (nnText.toCharArray().size > 2) {
                     messagesSearchViewStateContainer.updateViewState(
-                        MessagesSearchViewState.Loading
+                        MessagesSearchViewState.Loading(
+                            true
+                        )
                     )
 
                     messagesSearchJob?.cancel()
@@ -1011,7 +1248,12 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                         messageRepository.searchMessagesBy(nnChatId, nnText).firstOrNull()
                             ?.let { messages ->
                                 messagesSearchViewStateContainer.updateViewState(
-                                    MessagesSearchViewState.Searching(messages, 0, true)
+                                    MessagesSearchViewState.Searching(
+                                        true,
+                                        messages,
+                                        0,
+                                        true
+                                    )
                                 )
                             }
                     }
@@ -1021,7 +1263,24 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         }
 
         messagesSearchViewStateContainer.updateViewState(
-            MessagesSearchViewState.Searching(emptyList(), 0, true)
+            MessagesSearchViewState.Searching(
+                (text ?: "").isNotEmpty(),
+                emptyList(),
+                0,
+                true
+            )
+        )
+    }
+
+    fun cancelSearch() {
+        messagesSearchViewStateContainer.updateViewState(
+            MessagesSearchViewState.Cancel
+        )
+    }
+
+    fun clearSearch() {
+        messagesSearchViewStateContainer.updateViewState(
+            MessagesSearchViewState.Clear
         )
     }
 
@@ -1032,6 +1291,7 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         if (searchViewState is MessagesSearchViewState.Searching) {
             messagesSearchViewStateContainer.updateViewState(
                 MessagesSearchViewState.Searching(
+                    searchViewState.clearButtonVisible,
                     searchViewState.messages,
                     searchViewState.index + advanceBy,
                     advanceBy > 0
@@ -1162,10 +1422,17 @@ abstract class ChatViewModel<ARGS : NavArgs>(
     suspend fun handleCommonChatOnBackPressed() {
         val attachmentSendViewState = getAttachmentSendViewStateFlow().value
         val attachmentFullscreenViewState = getAttachmentFullscreenViewStateFlow().value
+        val messageSearchViewState = messagesSearchViewStateContainer.value
 
         when {
             currentViewState is ChatMenuViewState.Open -> {
                 updateViewState(ChatMenuViewState.Closed)
+            }
+            moreOptionsMenuHandler.value is MenuBottomViewState.Open -> {
+                moreOptionsMenuHandler.updateViewState(MenuBottomViewState.Closed)
+            }
+            callMenuHandler.value is MenuBottomViewState.Open -> {
+                callMenuHandler.updateViewState(MenuBottomViewState.Closed)
             }
             attachmentFullscreenViewState is AttachmentFullscreenViewState.ImageFullscreen -> {
                 updateAttachmentFullscreenViewState(AttachmentFullscreenViewState.Idle)
@@ -1181,6 +1448,12 @@ abstract class ChatViewModel<ARGS : NavArgs>(
             }
             getSelectedMessageViewStateFlow().value is SelectedMessageViewState.SelectedMessage -> {
                 updateSelectedMessageViewState(SelectedMessageViewState.None)
+            }
+            messageSearchViewState is MessagesSearchViewState.Searching -> {
+                messagesSearchViewStateContainer.updateViewState(MessagesSearchViewState.Idle)
+            }
+            messageSearchViewState is MessagesSearchViewState.Loading -> {
+                messagesSearchViewStateContainer.updateViewState(MessagesSearchViewState.Idle)
             }
             else -> {
                 chatNavigator.popBackStack()
@@ -1209,6 +1482,39 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                 }
                 is Response.Success -> {}
             }
+        }
+    }
+
+    fun toggleThreadDescriptionExpanded() {
+        val currentList = messageHolderViewStateFlow.value
+
+        val newList = currentList.map { item ->
+            if (item is MessageHolderViewState.ThreadHeader) {
+                item.copy(isExpanded = !item.isExpanded)
+            } else {
+                item
+            }
+        }
+        messageHolderViewStateFlow.value = newList
+    }
+
+    fun changeThreadHeaderState(isFullHeader: Boolean){
+        if (isFullHeader) {
+            (messageHolderViewStateFlow.value.getOrNull(0) as? MessageHolderViewState.ThreadHeader)?.let { viewState ->
+                val threadHeader = ThreadHeaderViewState.FullHeader(
+                    viewState.messageSenderInfo(viewState.message!!),
+                    viewState.timestamp,
+                    viewState.bubbleMessage?.text,
+                    viewState.bubbleImageAttachment,
+                    viewState.bubbleVideoAttachment,
+                    viewState.bubbleFileAttachment,
+                    viewState.bubbleAudioAttachment
+                )
+                threadHeaderViewState.updateViewState(threadHeader)
+            }
+        }
+        else {
+            threadHeaderViewState.updateViewState(ThreadHeaderViewState.BasicHeader)
         }
     }
 
@@ -1601,11 +1907,21 @@ abstract class ChatViewModel<ARGS : NavArgs>(
             SphinxCallLink.DEFAULT_CALL_SERVER_URL
         ) ?: SphinxCallLink.DEFAULT_CALL_SERVER_URL
 
-        SphinxCallLink.newCallInvite(meetingServerUrl, audioOnly)?.value?.let { newCallLink ->
-            val messageBuilder = SendMessage.Builder()
-            messageBuilder.setText(newCallLink)
+        viewModelScope.launch(mainImmediate) {
+            val chat = chatSharedFlow.firstOrNull()
 
-            viewModelScope.launch(mainImmediate) {
+            val messageText = if (chat?.isConversation() == true) {
+                SphinxCallLink.newCallLinkMessage(meetingServerUrl, audioOnly, moshi)
+            } else {
+                SphinxCallLink.newCallLink(meetingServerUrl, audioOnly)
+            }
+
+            val isCall = (chat?.isConversation() == true)
+
+            messageText?.let { newCallLink ->
+                val messageBuilder = SendMessage.Builder()
+                messageBuilder.setText(newCallLink)
+                messageBuilder.setIsCall(isCall)
                 sendMessage(messageBuilder)
             }
         }
@@ -1623,32 +1939,35 @@ abstract class ChatViewModel<ARGS : NavArgs>(
 
     fun joinCall(message: Message, audioOnly: Boolean) {
         message.retrieveSphinxCallLink()?.let { sphinxCallLink ->
+            joinCall(sphinxCallLink, audioOnly)
+        }
+    }
 
-            sphinxCallLink.callServerUrl?.let { nnCallUrl ->
+    private fun joinCall(link: SphinxCallLink, audioOnly: Boolean) {
+        link.callServerUrl?.let { nnCallUrl ->
 
-                viewModelScope.launch(mainImmediate) {
+            viewModelScope.launch(mainImmediate) {
 
-                    val owner = getOwner()
+                val owner = getOwner()
 
-                    val userInfo = JitsiMeetUserInfo()
-                    userInfo.displayName = owner.alias?.value ?: ""
+                val userInfo = JitsiMeetUserInfo()
+                userInfo.displayName = owner.alias?.value ?: ""
 
-                    owner.avatarUrl?.let { nnAvatarUrl ->
-                        userInfo.avatar = nnAvatarUrl
-                    }
-
-                    val options = JitsiMeetConferenceOptions.Builder()
-                        .setServerURL(nnCallUrl)
-                        .setRoom(sphinxCallLink.callRoom)
-                        .setAudioMuted(false)
-                        .setVideoMuted(false)
-                        .setFeatureFlag("welcomepage.enabled", false)
-                        .setAudioOnly(audioOnly)
-                        .setUserInfo(userInfo)
-                        .build()
-
-                    JitsiMeetActivity.launch(app, options)
+                owner.avatarUrl?.let { nnAvatarUrl ->
+                    userInfo.avatar = nnAvatarUrl
                 }
+
+                val options = JitsiMeetConferenceOptions.Builder()
+                    .setServerURL(nnCallUrl)
+                    .setRoom(link.callRoom)
+                    .setAudioMuted(false)
+                    .setVideoMuted(false)
+                    .setFeatureFlag("welcomepage.enabled", false)
+                    .setAudioOnly(audioOnly)
+                    .setUserInfo(userInfo)
+                    .build()
+
+                JitsiMeetActivity.launch(app, options)
             }
         }
     }
@@ -1721,17 +2040,64 @@ abstract class ChatViewModel<ARGS : NavArgs>(
 
                     handleTribeLink(tribeJoinLink)
 
+                } ?: url.toFeedItemLink()?.let { feedItemLink ->
+
+                    handleFeedItemLink(feedItemLink)
+
                 }
             }
 
         }
     }
 
+    private suspend fun goToFeedDetailView(feed: Feed) {
+        when {
+            feed.isPodcast -> {
+                chatNavigator.toPodcastPlayer(
+                    feed.chat?.id ?: ChatId(ChatId.NULL_CHAT_ID.toLong()),
+                    feed.id,
+                    feed.feedUrl
+                )
+            }
+            feed.isVideo -> {
+                chatNavigator.toVideoWatchScreen(
+                    feed.chat?.id ?: ChatId(ChatId.NULL_CHAT_ID.toLong()),
+                    feed.id,
+                    feed.feedUrl
+                )
+            }
+            feed.isNewsletter -> {
+                chatNavigator.toNewsletterDetail(
+                    feed.chat?.id ?: ChatId(ChatId.NULL_CHAT_ID.toLong()),
+                    feed.feedUrl
+                )
+            }
+        }
+    }
+
+    private suspend fun handleFeedItemLink(link: FeedItemLink) {
+        feedRepository.getFeedForLink(link).firstOrNull()?.let { feed ->
+            goToFeedDetailView(feed)
+        }
+    }
+
     private suspend fun handleTribeLink(tribeJoinLink: TribeJoinLink) {
         chatRepository.getChatByUUID(ChatUUID(tribeJoinLink.tribeUUID)).firstOrNull()?.let { chat ->
-            chatNavigator.toChat(chat, null)
+            chatNavigator.toChat(chat, null, null)
         } ?: chatNavigator.toJoinTribeDetail(tribeJoinLink).also {
             audioPlayerController.pauseMediaIfPlaying()
+        }
+    }
+
+    fun navigateToChatThread(uuid: MessageUUID) {
+        viewModelScope.launch(mainImmediate) {
+            chatNavigator.toChatThread(getChat().id, ThreadUUID(uuid.value))
+        }
+    }
+
+    fun navigateToTribeFromThread() {
+        viewModelScope.launch(mainImmediate) {
+            chatNavigator.toChat(getChat(), null, null)
         }
     }
 
@@ -1742,7 +2108,7 @@ abstract class ChatViewModel<ARGS : NavArgs>(
         contactRepository.getContactByPubKey(pubKey).firstOrNull()?.let { contact ->
 
             chatRepository.getConversationByContactId(contact.id).firstOrNull().let { chat ->
-                chatNavigator.toChat(chat, contact.id)
+                chatNavigator.toChat(chat, contact.id, null)
             }
 
         } ?: chatNavigator.toAddContactDetail(pubKey, routeHint).also {
@@ -1760,6 +2126,10 @@ abstract class ChatViewModel<ARGS : NavArgs>(
     open suspend fun deleteTribe() {}
 
     open fun onSmallProfileImageClick(message: Message) {}
+
+    open fun pinMessage(message: Message) {}
+
+    open fun unPinMessage(message: Message? = null) {}
 
     override suspend fun onMotionSceneCompletion(value: Nothing) {
         // unused
@@ -1939,7 +2309,12 @@ abstract class ChatViewModel<ARGS : NavArgs>(
                 @Exhaustive
                 when (val response = messageRepository.payPaymentRequest(message)) {
                     is Response.Error -> {
-                        submitSideEffect(ChatSideEffect.Notify(response.cause.message))
+                        submitSideEffect(ChatSideEffect.Notify(
+                            String.format(
+                                app.getString(R.string.error_payment_message),
+                                response.exception?.message ?: response.cause.message
+                            )
+                        ))
                     }
                     is Response.Success -> {
                         delay(100L)

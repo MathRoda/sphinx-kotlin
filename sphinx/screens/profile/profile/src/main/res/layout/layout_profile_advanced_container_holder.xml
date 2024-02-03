@@ -101,31 +101,6 @@
             </androidx.constraintlayout.widget.ConstraintLayout>
 
             <androidx.constraintlayout.widget.ConstraintLayout
-                android:id="@+id/layout_constraint_profile_advanced_container_signing_device"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/profile_standard_pin_form_height"
-                android:background="@color/body"
-                android:layout_marginTop="@dimen/profile_form_container_margin_top"
-                android:elevation="8dp"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/layout_constraint_profile_advanced_container_github_pat">
-
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/button_profile_advanced_container_signing_device"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:text="@string/setup_signing_device"
-                    android:textAllCaps="false"
-                    android:fontFamily="@font/roboto_medium"
-                    android:textSize="@dimen/profile_pin_button_text_size"
-                    android:textColor="@color/primaryBlue"
-                    android:background="@android:color/transparent" />
-
-            </androidx.constraintlayout.widget.ConstraintLayout>
-
-            <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/layout_constraint_profile_advanced_container_pin_timeout_form"
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/profile_pin_timeout_form_height"
@@ -134,7 +109,7 @@
                 android:elevation="8dp"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/layout_constraint_profile_advanced_container_signing_device">
+                app:layout_constraintTop_toBottomOf="@+id/layout_constraint_profile_advanced_container_github_pat">
 
                 <androidx.constraintlayout.widget.ConstraintLayout
                     android:id="@+id/layout_constraint_profile_advanced_container_pin_timeout_content"
@@ -238,6 +213,56 @@
                     android:textSize="@dimen/profile_pin_button_text_size"
                     android:textColor="@color/primaryBlue"
                     android:background="@android:color/transparent" />
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:layout_width="match_parent"
+                android:layout_height="128dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/layout_constraint_profile_advanced_container_privacy_pin_form">
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/layout_constraint_profile_delete_account"
+                    android:layout_width="match_parent"
+                    android:layout_height="64dp"
+                    android:layout_marginStart="@dimen/default_double_layout_margin"
+                    android:layout_marginEnd="@dimen/default_double_layout_margin"
+                    android:layout_marginBottom="@dimen/default_double_layout_margin"
+                    android:background="@drawable/button_background_white_rad_48"
+                    android:backgroundTint="@color/primaryRed"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toEndOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent">
+
+                    <androidx.appcompat.widget.AppCompatTextView
+                        android:id="@+id/text_view_profile_delete_account"
+                        android:layout_width="wrap_content"
+                        android:layout_height="0dp"
+                        android:gravity="center"
+                        android:layout_marginEnd="@dimen/default_layout_margin"
+                        android:text="@string/material_icon_name_message_action_delete"
+                        android:textColor="@color/text"
+                        android:fontFamily="@font/material_icons_regular"
+                        android:textSize="@dimen/profile_form_qr_code_icon_xy"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/button_profile_delete_account"
+                        android:textAllCaps="false"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:text="@string/profile_delete_account"
+                        android:textSize="@dimen/profile_backup_keys_text_size"
+                        android:fontFamily="@font/roboto_medium"
+                        android:gravity="center"
+                        android:textColor="@android:color/white"
+                        android:background="@android:color/transparent"/>
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
 
             </androidx.constraintlayout.widget.ConstraintLayout>
 

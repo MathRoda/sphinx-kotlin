@@ -32,6 +32,9 @@ class NetworkQueryContactImpl(
         private const val ENDPOINT_GENERATE_TOKEN = "/contacts/tokens"
         private const val ENDPOINT_KEYS_EXCHANGE = "/contacts/%d/keys"
         private const val ENDPOINT_GENERATE_GITHUB_PAT = "/bot/git"
+        private const val ENDPOINT_HAS_ADMIN = "/has_admin"
+        private const val ENDPOINT_DELETE_ACCOUNT = "/test_clear"
+
 
         private const val ENDPOINT_CREATE_INVITE = "/invites"
 
@@ -68,12 +71,16 @@ class NetworkQueryContactImpl(
 
     override fun getLatestContacts(
         date: DateTime?,
+        limit: Int,
+        offset: Int,
         relayData: Triple<Pair<AuthorizationToken, TransportToken?>, RequestSignature?, RelayUrl>?
     ): Flow<LoadResponse<GetLatestContactsResponse, ResponseError>> =
         networkRelayCall.relayGet(
             responseJsonClass = GetLatestContactsRelayResponse::class.java,
             relayEndpoint = if (date != null) {
-                "$ENDPOINT_LATEST_CONTACTS?date=${MessagePagination.getFormatPaginationPercentEscaped().format(date?.value)}"
+                "$ENDPOINT_LATEST_CONTACTS" +
+                        "?date=${MessagePagination.getFormatPaginationPercentEscaped().format(date?.value)}" +
+                        "&offset=${offset}&limit=${limit}"
             } else {
                 ENDPOINT_LATEST_CONTACTS
             },
@@ -248,4 +255,22 @@ class NetworkQueryContactImpl(
             requestBody = mapOf(Pair("", "")),
             relayData = relayData
         )
+
+    override fun hasAdmin(
+        url: RelayUrl
+    ): Flow<LoadResponse<Any, ResponseError>> =
+        networkRelayCall.get(
+            url = "${url.value}$ENDPOINT_HAS_ADMIN",
+            responseJsonClass = HasAdminRelayResponse::class.java,
+        )
+
+    override fun deleteAccount(
+        relayData: Triple<Pair<AuthorizationToken, TransportToken?>, RequestSignature?, RelayUrl>?
+    ): Flow<LoadResponse<Any, ResponseError>> =
+        networkRelayCall.relayGet(
+            responseJsonClass = DeleteAccountRelayResponse::class.java,
+            relayEndpoint = ENDPOINT_DELETE_ACCOUNT,
+            relayData = relayData
+        )
+
 }

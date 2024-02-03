@@ -11,9 +11,7 @@ android {
 
     defaultConfig {
         minSdkVersion versions.minSdk
-        targetSdkVersion versions.compileSdk
-        versionCode VERSION_CODE.toInteger()
-        versionName VERSION_NAME
+        targetSdkVersion versions.targetSdk
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments disableAnalytics: 'true'
@@ -25,6 +23,7 @@ android {
             minifyEnabled false
         }
     }
+    namespace 'chat.sphinx.swipe_reveal_layout'
 }
 
 dependencies {

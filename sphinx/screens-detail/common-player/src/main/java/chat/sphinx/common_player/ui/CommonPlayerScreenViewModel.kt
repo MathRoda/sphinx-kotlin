@@ -1,19 +1,27 @@
 package chat.sphinx.common_player.ui
 
+import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import app.cash.exhaustive.Exhaustive
+import chat.sphinx.common_player.R
 import chat.sphinx.common_player.navigation.CommonPlayerNavigator
 import chat.sphinx.common_player.viewstate.BoostAnimationViewState
 import chat.sphinx.common_player.viewstate.PlayerViewState
 import chat.sphinx.common_player.viewstate.RecommendationsPodcastPlayerViewState
+import chat.sphinx.common_player.viewstate.RecommendedFeedItemDetailsViewState
 import chat.sphinx.concept_repository_actions.ActionsRepository
 import chat.sphinx.concept_repository_contact.ContactRepository
 import chat.sphinx.concept_repository_feed.FeedRepository
+import chat.sphinx.concept_repository_lightning.LightningRepository
+import chat.sphinx.concept_repository_media.RepositoryMedia
 import chat.sphinx.concept_service_media.MediaPlayerServiceController
 import chat.sphinx.concept_service_media.MediaPlayerServiceState
 import chat.sphinx.concept_service_media.UserAction
@@ -22,8 +30,11 @@ import chat.sphinx.wrapper_common.dashboard.ChatId
 import chat.sphinx.wrapper_common.feed.FeedId
 import chat.sphinx.wrapper_common.lightning.Sat
 import chat.sphinx.wrapper_contact.Contact
+import chat.sphinx.wrapper_feed.*
+import chat.sphinx.wrapper_lightning.NodeBalance
 import chat.sphinx.wrapper_podcast.Podcast
 import chat.sphinx.wrapper_podcast.PodcastEpisode
+import chat.sphinx.wrapper_podcast.toHrAndMin
 import com.squareup.moshi.Moshi
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.matthewnelson.android_feature_navigation.util.navArgs
@@ -35,8 +46,6 @@ import io.matthewnelson.concept_views.viewstate.value
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
 import javax.inject.Inject
 
 internal inline val CommonPlayerScreenFragmentArgs.podcastId: FeedId
@@ -48,10 +57,13 @@ internal inline val CommonPlayerScreenFragmentArgs.episodeId: FeedId
 @HiltViewModel
 class CommonPlayerScreenViewModel @Inject constructor(
     dispatchers: CoroutineDispatchers,
-    private val navigator: CommonPlayerNavigator,
+    private val app: Application,
+    val navigator: CommonPlayerNavigator,
     private val contactRepository: ContactRepository,
     private val feedRepository: FeedRepository,
     private val actionsRepository: ActionsRepository,
+    private val lightningRepository: LightningRepository,
+    private val repositoryMedia: RepositoryMedia,
     private val moshi: Moshi,
     private val mediaPlayerServiceController: MediaPlayerServiceController,
     savedStateHandle: SavedStateHandle,
@@ -64,6 +76,9 @@ class CommonPlayerScreenViewModel @Inject constructor(
 
     private val args: CommonPlayerScreenFragmentArgs by savedStateHandle.navArgs()
 
+    private suspend fun getAccountBalance(): StateFlow<NodeBalance?> =
+        lightningRepository.getAccountBalance()
+
     val boostAnimationViewStateContainer: ViewStateContainer<BoostAnimationViewState> by lazy {
         ViewStateContainer(BoostAnimationViewState.Idle)
     }
@@ -71,6 +86,17 @@ class CommonPlayerScreenViewModel @Inject constructor(
     val playerViewStateContainer: ViewStateContainer<PlayerViewState> by lazy {
         ViewStateContainer(PlayerViewState.Idle)
     }
+
+    val recommendedFeedItemDetailsViewState: ViewStateContainer<RecommendedFeedItemDetailsViewState> by lazy {
+        ViewStateContainer(RecommendedFeedItemDetailsViewState.Closed)
+    }
+
+    private val _feedItemDetailStateFlow: MutableStateFlow<FeedItemDetail?> by lazy {
+        MutableStateFlow(null)
+    }
+
+    private val feedItemDetailStateFlow: StateFlow<FeedItemDetail?>
+        get() = _feedItemDetailStateFlow.asStateFlow()
 
     private var videoRecordConsumed: VideoRecordConsumed? = null
 
@@ -187,7 +213,7 @@ class CommonPlayerScreenViewModel @Inject constructor(
                     )
 
                     delay(300L)
-                    playEpisode(newEpisode, newEpisode.clipStartTime ?: podcast.currentTime)
+                    preLoadEpisode(newEpisode)
                 }
             } else {
                 playerViewStateContainer.updateViewState(
@@ -228,6 +254,7 @@ class CommonPlayerScreenViewModel @Inject constructor(
                     }
                     is MediaPlayerServiceState.ServiceActive.MediaState.Paused -> {
                         podcast.pauseEpisodeUpdate()
+
                         viewStateContainer.updateViewState(
                             RecommendationsPodcastPlayerViewState.PodcastViewState.MediaStateUpdate(
                                 podcast,
@@ -269,6 +296,19 @@ class CommonPlayerScreenViewModel @Inject constructor(
     fun playEpisodeFromList(episode: PodcastEpisode) {
         viewModelScope.launch(mainImmediate) {
             getPodcast()?.let { podcast ->
+
+                podcast.getEpisodeWithId(episode.id.value)?.let { episode ->
+                    if (mediaPlayerServiceController.getPlayingContent()?.second == episode.id.value) {
+                        pauseEpisode(episode)
+                        return@launch
+                    }
+                }
+
+                if (podcast.getCurrentEpisode().id == episode.id) {
+                    playEpisode(podcast.getCurrentEpisode(), podcast.timeMilliSeconds)
+                    return@launch
+                }
+
                 viewStateContainer.updateViewState(
                     RecommendationsPodcastPlayerViewState.PodcastViewState.LoadingEpisode(podcast, episode)
                 )
@@ -282,7 +322,7 @@ class CommonPlayerScreenViewModel @Inject constructor(
 
                     playEpisode(
                         episode,
-                        episode.clipStartTime ?: 0
+                        (episode.clipStartTime ?: 0).toLong()
                     )
                 } else if (episode.isYouTubeVideo) {
                     playerViewStateContainer.updateViewState(
@@ -300,29 +340,40 @@ class CommonPlayerScreenViewModel @Inject constructor(
         }
     }
 
-    fun playEpisode(episode: PodcastEpisode, startTime: Int) {
+    private fun preLoadEpisode(episode: PodcastEpisode) {
+        viewModelScope.launch(mainImmediate) {
+            getPodcast()?.let { podcast ->
+
+                podcast.setCurrentEpisodeWith(episode.id.value)
+
+                viewStateContainer.updateViewState(
+                    RecommendationsPodcastPlayerViewState.PodcastViewState.EpisodePlayed(
+                        podcast
+                    )
+                )
+            }
+        }
+    }
+
+    fun playEpisode(episode: PodcastEpisode, startTimeMilliseconds: Long) {
         viewModelScope.launch(mainImmediate) {
             getPodcast()?.let { podcast ->
                 viewModelScope.launch(mainImmediate) {
+
+                    podcast.willStartPlayingEpisode(
+                        episode,
+                        startTimeMilliseconds,
+                        ::retrieveEpisodeDuration
+                    )
+
                     mediaPlayerServiceController.submitAction(
                         UserAction.ServiceAction.Play(
                             ChatId(ChatId.NULL_CHAT_ID.toLong()),
-                            podcast.id.value,
-                            episode.id.value,
                             episode.episodeUrl,
-                            Sat(podcast.satsPerMinute),
-                            podcast.speed,
-                            startTime,
+                            podcast.getUpdatedContentFeedStatus(),
+                            podcast.getUpdatedContentEpisodeStatus()
                         )
                     )
-
-                    withContext(io) {
-                        podcast.didStartPlayingEpisode(
-                            episode,
-                            startTime,
-                            ::retrieveEpisodeDuration
-                        )
-                    }
 
                     viewStateContainer.updateViewState(
                         RecommendationsPodcastPlayerViewState.PodcastViewState.EpisodePlayed(
@@ -349,17 +400,15 @@ class CommonPlayerScreenViewModel @Inject constructor(
         }
     }
 
-    fun seekTo(time: Int) {
+    fun seekTo(timeMilliseconds: Long) {
         viewModelScope.launch(mainImmediate) {
             getPodcast()?.let { podcast ->
-                podcast.didSeekTo(time)
-
-                val metaData = podcast.getMetaData()
+                podcast.didSeekTo(timeMilliseconds)
 
                 mediaPlayerServiceController.submitAction(
                     UserAction.ServiceAction.Seek(
                         ChatId(ChatId.NULL_CHAT_ID.toLong()),
-                        metaData
+                        podcast.getUpdatedContentEpisodeStatus()
                     )
                 )
             }
@@ -371,22 +420,35 @@ class CommonPlayerScreenViewModel @Inject constructor(
             getPodcast()?.let { podcast ->
                 podcast.speed = speed
 
+                val contentFeedStatus = podcast.getUpdatedContentFeedStatus()
+
                 mediaPlayerServiceController.submitAction(
                     UserAction.AdjustSpeed(
                         ChatId(ChatId.NULL_CHAT_ID.toLong()),
-                        podcast.getMetaData()
+                        contentFeedStatus
                     )
                 )
             }
         }
     }
 
-    fun retrieveEpisodeDuration(episodeUrl: String, localFile: File?): Long {
-        localFile?.let {
-            return Uri.fromFile(it).getMediaDuration(true)
-        } ?: run {
-            return Uri.parse(episodeUrl).getMediaDuration(false)
+    fun retrieveEpisodeDuration(
+        episode: PodcastEpisode
+    ): Long {
+        val duration = episode.localFile?.let {
+            Uri.fromFile(it).getMediaDuration(true)
+        } ?: Uri.parse(episode.episodeUrl).getMediaDuration(false)
+
+        viewModelScope.launch(io) {
+            feedRepository.updateContentEpisodeStatus(
+                feedId = episode.podcastId,
+                itemId = episode.id,
+                FeedItemDuration(duration / 1000),
+                FeedItemDuration(episode.currentTimeSeconds)
+            )
         }
+
+        return duration
     }
 
     suspend fun playingVideoDidPause() {
@@ -428,6 +490,127 @@ class CommonPlayerScreenViewModel @Inject constructor(
             }
         }
     }
+    fun showOptionsFor(episode: PodcastEpisode) {
+        viewModelScope.launch(mainImmediate) {
+            val duration = episode.getUpdatedContentEpisodeStatus().duration.value.toInt().toHrAndMin()
+            val podcastName = getPodcast()?.title?.value ?: ""
+
+            _feedItemDetailStateFlow.value = FeedItemDetail(
+                episode.id,
+                episode.titleToShow,
+                episode.image?.value ?: "",
+                R.drawable.ic_podcast_type,
+                "Podcast",
+                episode.dateString,
+                duration,
+                episode.downloaded,
+                isFeedItemDownloadInProgress(episode.id),
+                episode.episodeUrl,
+                false,
+                podcastName
+            )
+
+            recommendedFeedItemDetailsViewState.updateViewState(
+                RecommendedFeedItemDetailsViewState.Open(feedItemDetailStateFlow.value)
+            )
+        }
+    }
+
+    fun share(link: String, context: Context) {
+        val sharingIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, link)
+        }
+
+        context.startActivity(
+            Intent.createChooser(
+                sharingIntent,
+                app.getString(R.string.episode_detail_share_link)
+            )
+        )
+    }
+
+    fun copyCodeToClipboard(link: String) {
+        (app.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.let { manager ->
+            val clipData = ClipData.newPlainText("text", link)
+            manager.setPrimaryClip(clipData)
+
+            viewModelScope.launch(mainImmediate) {
+                submitSideEffect(
+                    CommonPlayerScreenSideEffect.Notify.CopyClipboardLink(
+                        R.string.episode_detail_clipboard
+                    )
+                )
+            }
+        }
+    }
+
+    private fun isFeedItemDownloadInProgress(feedItemId: FeedId): Boolean {
+        return repositoryMedia.inProgressDownloadIds().contains(feedItemId)
+    }
+
+    fun isEpisodeSoundPlaying(episode: PodcastEpisode): Boolean {
+        return episode.playing && mediaPlayerServiceController.getPlayingContent()?.third == true
+    }
+
+    fun sendPodcastBoost(
+        amount: Sat,
+        fireworksCallback: () -> Unit
+    ) {
+        viewModelScope.launch(mainImmediate) {
+            getPodcast()?.let { podcast ->
+                getAccountBalance().firstOrNull()?.let { balance ->
+                    when {
+                        (amount.value > balance.balance.value) -> {
+                            submitSideEffect(
+                                CommonPlayerScreenSideEffect.Notify.BalanceTooLow
+                            )
+                        }
+                        (amount.value <= 0) -> {
+                            submitSideEffect(
+                                CommonPlayerScreenSideEffect.Notify.BoostAmountTooLow
+                            )
+                        }
+                        else -> {
+                            fireworksCallback()
+
+                            actionsRepository.trackFeedBoostAction(
+                                amount.value,
+                                podcast.getCurrentEpisode().id,
+                                arrayListOf("")
+                            )
+
+                            podcast.getCurrentEpisode()
+                                .recommendationPubKey
+                                ?.toFeedDestinationAddress()
+                                ?.let { pubKey ->
+
+                                    val feedDestinations: List<FeedDestination> = arrayListOf(
+                                        FeedDestination(
+                                            address = pubKey,
+                                            split = FeedDestinationSplit(100.0),
+                                            type = FeedDestinationType("node"),
+                                            feedId = podcast.getCurrentEpisode().id
+                                        )
+                                    )
+
+                                    mediaPlayerServiceController.submitAction(
+                                        UserAction.SendBoost(
+                                            ChatId(ChatId.NULL_CHAT_ID.toLong()),
+                                            podcast.getCurrentEpisode().id.value,
+                                            podcast.getUpdatedContentFeedStatus(amount),
+                                            podcast.getUpdatedContentEpisodeStatus(),
+                                            feedDestinations
+                                        )
+                                    )
+                                }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun setNewHistoryItem(videoPosition: Long){
         videoRecordConsumed?.setNewHistoryItem(videoPosition)
     }
