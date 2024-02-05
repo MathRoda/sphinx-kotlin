@@ -15,7 +15,7 @@ android {
         minSdkVersion versions.minSdk
         targetSdkVersion versions.targetSdk
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner "chat.sphinx.chat_contact.hilt.CustomTestRunner"
         testInstrumentationRunnerArguments disableAnalytics: 'true'
         consumerProguardFiles "consumer-rules.pro"
     }
@@ -37,4 +37,11 @@ dependencies {
     implementation deps.facebook.shimmer
     implementation project(path: ':sphinx:application:data:concepts:repositories:concept-repository-dashboard-android')
     kapt kaptDeps.google.hilt
+
+    androidTestImplementation testDeps.androidx.junit
+    androidTestImplementation testDeps.androidx.espresso
+    androidTestImplementation 'com.google.dagger:hilt-android-testing:2.42'
+    kaptAndroidTest 'com.google.dagger:hilt-android-compiler:2.42'
+    def fragment_version = "1.5.2"
+    debugImplementation("androidx.fragment:fragment-testing:$fragment_version")
 }
